@@ -1,109 +1,262 @@
-name: "PitchKernel — Build (ReSukiSU + SuSFS + BBR)"
+name: Build PitchKernel
 
 on:
   workflow_dispatch:
     inputs:
-      device:
-        description: "Target device codename"
-        type: string
-        default: "munch"
-      use_ksu:
-        description: "Enable ReSukiSU + SuSFS"
+      script:
+        description: 'Target ROM type'
+        required: true
+        default: 'build.sh'
+        type: choice
+        options:
+          - build.sh
+          - build-miui.sh
+      ksu:
+        description: 'Enable ReSukiSU + SUSFS'
+        required: true
         type: boolean
         default: true
-      clang_version:
-        description: "ZyC-Clang release tag (check https://github.com/ZyCromerZ/Clang/releases for the latest)"
-        type: string
-        default: "16.0.6-20260510-release"
-      clang_filename:
-        description: "Asset filename matching clang_version (must match exactly)"
-        type: string
-        default: "Clang-16.0.6-20260510.tar.gz"
+
+permissions:
+  contents: write
 
 jobs:
   build:
+    name: PitchKernel munch
     runs-on: ubuntu-latest
-    timeout-minutes: 90
 
     steps:
-      - name: "Checkout kernel source"
-        uses: actions/checkout@v6
+      - name: Checkout PitchKernel repo
+        uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
-      - name: "Free disk space"
-        uses: jlumbroso/free-disk-space@main
-        with:
-          tool-cache: false
-          android: true
-          dotnet: true
-          haskell: true
-          large-packages: true
-          docker-images: true
-          swap-storage: false
+      - name: Notify build started
+        run: |
+          if [ "${{ inputs.ksu }}" == "true" ]; then
+            LABEL="ReSukiSU+SUSFS"
+          else
+            LABEL="NoKSU"
+          fi
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d "message_thread_id=${{ secrets.TELEGRAM_THREAD_ID_EVENT }}" \
+            -d "disable_web_page_preview=true" \
+            -d "text=🔨 PitchKernel — Build Started%0ADevice: munch (Poco F4)%0AType: ${LABEL} — ${{ inputs.script }}%0ADate: $(date +'%Y-%m-%d %H:%M UTC')" | jq '.ok'
 
-      - name: "Install build dependencies"
+      - name: Cleanup disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc \
+            "/usr/local/share/boost" "$AGENT_TOOLSDIRECTORY"
+
+      - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential git curl wget bison flex zip bc cpio \
-            libssl-dev ccache tar python-is-python3
+          sudo apt-get install -y build-essential git curl wget \
+            bison flex zip bc cpio libssl-dev ccache \
+            python-is-python3 gcc-arm-linux-gnueabi \
+            device-tree-compiler
 
-      - name: "Restore ccache"
+      - name: Setup ccache
         uses: actions/cache@v4
         with:
           path: ~/.cache/ccache_mikernel
-          key: ccache-${{ inputs.device }}-${{ github.ref_name }}-${{ github.run_id }}
+          key: pitchkernel-ccache-munch-${{ github.run_id }}
           restore-keys: |
-            ccache-${{ inputs.device }}-${{ github.ref_name }}-
+            pitchkernel-ccache-munch-
+            pitchkernel-ccache-
 
-      - name: "Download ZyC-Clang toolchain"
+      - name: Setup ZyCromerZ Clang 16
         run: |
-          mkdir -p "$HOME/zyc-clang"
-          cd "$HOME/zyc-clang"
-          curl -LSs --retry 3 -o clang.tar.gz \
-            "https://github.com/ZyCromerZ/Clang/releases/download/${{ inputs.clang_version }}/${{ inputs.clang_filename }}"
-          tar -xzf clang.tar.gz
+          mkdir -p $HOME/zyc-clang
+          wget -q https://github.com/ZyCromerZ/Clang/releases/download/16.0.6-20260510-release/Clang-16.0.6-20260510.tar.gz \
+            -O clang.tar.gz
+          tar -zxf clang.tar.gz -C $HOME/zyc-clang
           rm clang.tar.gz
-          echo "$HOME/zyc-clang/bin" >> "$GITHUB_PATH"
 
-      - name: "Verify toolchain"
+      - name: Clone apasitu kernel source
         run: |
-          export PATH="$HOME/zyc-clang/bin:$PATH"
-          clang --version
-          aarch64-linux-gnu-ld --version | head -1
-          arm-linux-gnueabi-ld --version | head -1
+          git clone --depth=1 --no-single-branch \
+            https://github.com/AstideLabs/android_kernel_xiaomi_sm8250.git \
+            apasitu
+          ls apasitu/build.sh apasitu/build-miui.sh
 
-      - name: "Build kernel (${{ inputs.device }})"
+      - name: Set PitchKernel name
         run: |
-          chmod +x build.sh
-          if [ "${{ inputs.use_ksu }}" = "true" ]; then
-            bash build.sh "${{ inputs.device }}" ksu
+          echo "-pitchkernel" > apasitu/localversion-st
+          echo "" > apasitu/localversion-cip
+
+      - name: Point AnyKernel3 to PitchKernel fork
+        run: |
+          sed -i 's#https://github.com/AstideLabs/AnyKernel3#https://github.com/MujinnPark/AnyKernel3#' \
+            apasitu/build.sh apasitu/build-miui.sh
+
+      - name: Enable TCP BBR
+        run: |
+          DEFCONFIG="apasitu/arch/arm64/configs/munch_defconfig"
+          [ -f "$DEFCONFIG" ] || { echo "ERROR: $DEFCONFIG not found"; exit 1; }
+          {
+            echo ""
+            echo "# TCP congestion control - PitchKernel"
+            echo "# Advanced mode + BBR as default, but keep CUBIC/Westwood/HTCP/BIC"
+            echo "# built in too so they stay switchable at runtime via sysctl."
+            echo "CONFIG_TCP_CONG_ADVANCED=y"
+            echo "CONFIG_TCP_CONG_BBR=y"
+            echo "CONFIG_TCP_CONG_CUBIC=y"
+            echo "CONFIG_TCP_CONG_WESTWOOD=y"
+            echo "CONFIG_TCP_CONG_HTCP=y"
+            echo "CONFIG_TCP_CONG_BIC=y"
+            echo "CONFIG_NET_SCH_FQ=y"
+            echo "CONFIG_NET_SCH_FQ_CODEL=y"
+            echo "# DEFAULT_BBR covers the choice-block Kconfig style;"
+            echo "# DEFAULT_TCP_CONG covers the free-string style. Harmless"
+            echo "# if only one applies on this tree -- unmatched lines are ignored."
+            echo "CONFIG_DEFAULT_BBR=y"
+            echo 'CONFIG_DEFAULT_TCP_CONG="bbr"'
+          } >> "$DEFCONFIG"
+
+      - name: Build kernel
+        run: |
+          cd apasitu
+          chmod +x build.sh build-miui.sh
+          if [ "${{ inputs.ksu }}" == "true" ]; then
+            bash ${{ inputs.script }} munch ksu
           else
-            bash build.sh "${{ inputs.device }}"
+            bash ${{ inputs.script }} munch
           fi
 
-      - name: "Locate output zips"
-        id: find_zips
+      - name: Package zip
         run: |
-          echo "Zips produced:"
-          ls -la ./*.zip
-          {
-            echo "zip_glob<<EOF"
-            ls ./*.zip
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+          DATE=$(date +%Y%m%d-%H%M)
+          if [ "${{ inputs.ksu }}" == "true" ]; then
+            TYPE="sukisu"
+          else
+            TYPE="noksu"
+          fi
+          echo "BUILD_DATE=${DATE}" >> $GITHUB_ENV
+          echo "BUILD_TYPE=${TYPE}" >> $GITHUB_ENV
 
-      - name: "Upload AOSP + MIUI zips"
-        if: always()
-        uses: actions/upload-artifact@v7
+          # Get build.sh's own AOSP zip — captured before the MIUI section
+          # wipes anykernel/kernels/aosp/. Targeting by exact name pattern
+          # avoids accidentally picking the MIUI zip.
+          AOSP_SRC_ZIP=$(find apasitu -maxdepth 1 -name "APTKernel_AOSP_*.zip" | head -1)
+          if [ -z "$AOSP_SRC_ZIP" ] || [ ! -f "$AOSP_SRC_ZIP" ]; then
+            echo "ERROR: APTKernel_AOSP_*.zip not found. Available zips:"
+            find apasitu -maxdepth 1 -name "*.zip"
+            exit 1
+          fi
+          echo "AOSP source: $AOSP_SRC_ZIP ($(du -sh $AOSP_SRC_ZIP | cut -f1))"
+
+          # Extract kernel files from the AOSP zip
+          mkdir -p /tmp/kernel_files
+          unzip -q -j "$AOSP_SRC_ZIP" \
+            "kernels/aosp/Image" \
+            "kernels/aosp/dtb" \
+            "kernels/aosp/dtbo.img" \
+            -d /tmp/kernel_files/
+
+          for f in Image dtb dtbo.img; do
+            if [ ! -f "/tmp/kernel_files/$f" ]; then
+              echo "ERROR: $f not found in $AOSP_SRC_ZIP"
+              unzip -l "$AOSP_SRC_ZIP" | grep kernels
+              exit 1
+            fi
+          done
+          echo "Kernel files:"
+          ls -lh /tmp/kernel_files/
+
+          # AnyKernel3 base from the post-build anykernel/ dir.
+          # Tools, scripts, patch/ files are intact — only kernels/ got
+          # wiped by the MIUI build section.
+          AK3_DIR="apasitu/anykernel"
+          [ -d "$AK3_DIR" ] || { echo "ERROR: $AK3_DIR not found"; ls apasitu/; exit 1; }
+
+          WORKDIR="/tmp/ak3_build"
+          rm -rf "$WORKDIR"
+          cp -r "$AK3_DIR" "$WORKDIR"
+
+          # Inject real AOSP kernel files
+          rm -rf "$WORKDIR/kernels"
+          mkdir -p "$WORKDIR/kernels/aosp"
+          cp /tmp/kernel_files/Image   "$WORKDIR/kernels/aosp/"
+          cp /tmp/kernel_files/dtb     "$WORKDIR/kernels/aosp/"
+          cp /tmp/kernel_files/dtbo.img "$WORKDIR/kernels/aosp/"
+
+          # Verify Image landed
+          [ -f "$WORKDIR/kernels/aosp/Image" ] || \
+            { echo "ERROR: Image missing after copy"; exit 1; }
+
+          # Ship dtbo as both AOSP and MIUI entries so the ROM selector
+          # in anykernel.sh can rename the correct one. Both use the same
+          # compiled dtbo — MIUI vs AOSP dtbo difference is only relevant
+          # if the MIUI build target is used (build-miui.sh).
+          cp /tmp/kernel_files/dtbo.img "$WORKDIR/munch-aosp-dtbo.img"
+          cp /tmp/kernel_files/dtbo.img "$WORKDIR/munch-miui-dtbo.img"
+
+          ZIP_NAME="PitchKernel-${TYPE}-munch-${DATE}.zip"
+
+          cd "$WORKDIR"
+          zip -r9 "$GITHUB_WORKSPACE/$ZIP_NAME" . \
+            -x ".git/*" -x "*.gitignore" >/dev/null
+
+          # Verify Image is actually inside the final zip
+          unzip -l "$GITHUB_WORKSPACE/$ZIP_NAME" | grep -q "kernels/aosp/Image" || \
+            { echo "ERROR: kernels/aosp/Image missing from $ZIP_NAME"; exit 1; }
+
+          cd "$GITHUB_WORKSPACE"
+          echo "Packaged: $ZIP_NAME ($(du -sh $ZIP_NAME | cut -f1))"
+          echo "ZIP_NAME=${ZIP_NAME}" >> $GITHUB_ENV
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: PitchKernel-${{ inputs.device }}-${{ github.run_number }}
-          path: ./*.zip
-          retention-days: 14
+          name: PitchKernel-munch-${{ github.run_number }}
+          path: ${{ env.ZIP_NAME }}
           if-no-files-found: error
+          retention-days: 7
 
-      - name: "Ccache stats"
-        if: always()
-        run: ccache --show-stats || true
-        
+      - name: Send artifact to Telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_THREAD_ID_ARTIFACT: ${{ secrets.TELEGRAM_THREAD_ID_ARTIFACT }}
+          ZIP_PATH: ${{ github.workspace }}/${{ env.ZIP_NAME }}
+          ZIP_NAME: ${{ env.ZIP_NAME }}
+          KERNEL_VERSION: "4.19"
+          ROOT_SOLUTION: ${{ inputs.ksu && 'RESUKISU' || 'VANILLA' }}
+          SUSFS_ENABLED: ${{ inputs.ksu }}
+          KERNEL_BRANCH: "default (apasitu)"
+          COMPILER_STRING: "ZyCromerZ Clang 16.0.6"
+          KERNEL_SRC: "apasitu"
+        run: |
+          source PitchKernel/release/telegram.sh
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: PitchKernel-munch-${{ env.BUILD_DATE }}
+          name: "PitchKernel ${{ env.BUILD_DATE }} — munch"
+          body: |
+            ## PitchKernel — Poco F4 / Redmi K40S (munch)
+
+            **Build date:** ${{ env.BUILD_DATE }}
+            **Type:** ${{ env.BUILD_TYPE }}
+            **Base:** AstideLabs/android_kernel_xiaomi_sm8250
+            **Toolchain:** ZyCromerZ Clang 16.0.6
+
+            ### Features
+            - ReSukiSU + SUSFS v2.1.0 (${{ inputs.ksu && 'enabled' || 'disabled' }})
+            - TCP BBR congestion control
+            - ROM auto-detection: MIUI/HyperOS or AOSP
+            - CPU prime core ceiling: 2841600 kHz (hardware-enforced by qcom-cpufreq-hw driver)
+
+            ### Installation
+            Flash via OrangeFox or TWRP.
+            Select ROM type during flash (auto-detected from zip name, volume-key fallback).
+            cpufreq script placed in `/data/adb/post-fs-data.d/` automatically — no separate module needed.
+          files: ${{ env.ZIP_NAME }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          draft: false
+          prerelease: false
+
+          
