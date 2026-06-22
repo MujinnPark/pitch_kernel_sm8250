@@ -175,6 +175,56 @@ jobs:
           rm -rf "$WORKDIR"
           cp -r "$AK3_DIR" "$WORKDIR"
 
+          # --- PitchKernel branding + dtbo-warning cleanup ---
+          # Upstream anykernel.sh ships as "APTKernel by ApartTUSITU @ AstideLabs".
+          # Rebrand it; if upstream changes this string the sed below just
+          # becomes a no-op (verified after, see check below).
+          if grep -q "APTKernel by ApartTUSITU" "$WORKDIR/anykernel.sh"; then
+            sed -i 's/APTKernel by ApartTUSITU @ AstideLabs/PitchKernel by MujinnPark/' \
+              "$WORKDIR/anykernel.sh"
+            echo "Rebranded anykernel.sh banner."
+          else
+            echo "WARNING: APTKernel banner string not found in anykernel.sh — upstream may have changed it. Skipping rebrand."
+          fi
+
+          # The dtbo "not recommended by default / uncomment to flash" warning
+          # is upstream's safety notice for a known display brightness bug in
+          # this source's dtbo (confirmed independently by other sm8250 kernel
+          # maintainers). We're removing the *text* only, per explicit user
+          # acknowledgement of that risk — the underlying dtbo flashing logic
+          # (commented out by default) is untouched.
+          if grep -q "not recommended by default" "$WORKDIR/anykernel.sh"; then
+            sed -i '/is not recommended by default\./d; /If you need to flash them, please uncomment/d; /^[[:space:]]*ui_print "code in the script\.\?"$/d' \
+              "$WORKDIR/anykernel.sh"
+            echo "Removed dtbo warning text."
+          else
+            echo "WARNING: dtbo warning text not found in anykernel.sh — upstream may have changed it. Skipping removal."
+          fi
+
+          # --- PitchKernel cpufreq profile (overlay.d, Magisk-style) ---
+          # post-fs-data.sh already defaults to the 'stable' profile if
+          # /data/.pitchkernel_profile doesn't exist, so no profile-file
+          # writer is needed here. To switch to 'overclock' on-device:
+          #   su -c 'echo overclock > /data/.pitchkernel_profile' && reboot
+          #
+          # KNOWN UNVERIFIED RISK: overlay.d is a documented Magisk ramdisk
+          # convention. Whether ReSukiSU replicates it identically hasn't
+          # been confirmed -- test on-device after flashing (see note below)
+          # before relying on this for daily use.
+          mkdir -p "$WORKDIR/ramdisk/overlay.d/sbin"
+          cp module/post-fs-data.sh "$WORKDIR/ramdisk/overlay.d/sbin/pitchkernel_cpufreq.sh"
+          chmod 0755 "$WORKDIR/ramdisk/overlay.d/sbin/pitchkernel_cpufreq.sh"
+          printf '%s\n' \
+            'on post-fs-data' \
+            '    start pitchkernel_cpufreq' \
+            '' \
+            'service pitchkernel_cpufreq /sbin/pitchkernel_cpufreq.sh' \
+            '    user root' \
+            '    group root' \
+            '    oneshot' \
+            '    disabled' \
+            > "$WORKDIR/ramdisk/overlay.d/pitchkernel.rc"
+
           # Inject real AOSP kernel files
           rm -rf "$WORKDIR/kernels"
           mkdir -p "$WORKDIR/kernels/aosp"
