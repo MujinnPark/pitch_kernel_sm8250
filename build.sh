@@ -112,6 +112,7 @@ rm -rf anykernel/
 
 echo "Clone AnyKernel3 for packing kernel (repo: https://github.com/AstideLabs/AnyKernel3)"
 git clone https://github.com/AstideLabs/AnyKernel3 -b master --single-branch --depth=1 anykernel
+sed -i 's/kernel\.string=.*/kernel.string=PitchKernel by MujinnPark/' anykernel/anykernel.sh || true
 
 # ------------- Building for AOSP -------------
 echo "Building for AOSP......"
@@ -140,16 +141,20 @@ fi
 scripts/config --file out/.config \
   -e BBG
 
-# --- BBR TCP congestion control ---
+# --- TCP congestion control: build in BBR + switchable alternatives ---
 scripts/config --file out/.config \
   -e TCP_CONG_ADVANCED \
   -e TCP_CONG_BBR \
+  -e TCP_CONG_CUBIC \
+  -e TCP_CONG_WESTWOOD \
+  -e TCP_CONG_HTCP \
+  -e TCP_CONG_BIC \
   -e DEFAULT_BBR \
   -d DEFAULT_CUBIC \
   --set-str DEFAULT_TCP_CONG bbr \
   -e NET_SCH_FQ \
   -e NET_SCH_FQ_CODEL
-# --- end BBR ---
+# --- end TCP congestion control ---
 
 scripts/config --file out/.config \
   -e REKERNEL \
@@ -186,7 +191,7 @@ cp out/arch/arm64/boot/dtb anykernel/kernels/aosp/
 cp out/arch/arm64/boot/dtbo.img anykernel/kernels/aosp/
 
 cd anykernel
-ZIP_FILENAME=APTKernel_AOSP_${TARGET_DEVICE}_${KSU_ZIP_STR}_$(date +'%Y%m%d_%H%M%S')_anykernel3_${GIT_COMMIT_ID}.zip
+ZIP_FILENAME=PitchKernel_AOSP_${TARGET_DEVICE}_${KSU_ZIP_STR}_$(date +'%Y%m%d_%H%M%S')_anykernel3_${GIT_COMMIT_ID}.zip
 zip -r9 $ZIP_FILENAME ./* -x .git .gitignore out/ ./*.zip
 mv $ZIP_FILENAME ../
 cd ..
@@ -279,16 +284,20 @@ fi
 scripts/config --file out/.config \
   -e BBG
 
-# --- BBR TCP congestion control ---
+# --- TCP congestion control: build in BBR + switchable alternatives ---
 scripts/config --file out/.config \
   -e TCP_CONG_ADVANCED \
   -e TCP_CONG_BBR \
+  -e TCP_CONG_CUBIC \
+  -e TCP_CONG_WESTWOOD \
+  -e TCP_CONG_HTCP \
+  -e TCP_CONG_BIC \
   -e DEFAULT_BBR \
   -d DEFAULT_CUBIC \
   --set-str DEFAULT_TCP_CONG bbr \
   -e NET_SCH_FQ \
   -e NET_SCH_FQ_CODEL
-# --- end BBR ---
+# --- end TCP congestion control ---
 
 scripts/config --file out/.config \
   --set-str STATIC_USERMODEHELPER_PATH /system/bin/micd \
@@ -356,7 +365,7 @@ echo "Build for MIUI finished."
 # If you don't need MIUI you can comment out the above block [Building for MIUI]
 
 cd anykernel
-ZIP_FILENAME=APTKernel_MIUI_${TARGET_DEVICE}_${KSU_ZIP_STR}_$(date +'%Y%m%d_%H%M%S')_anykernel3_${GIT_COMMIT_ID}.zip
+ZIP_FILENAME=PitchKernel_MIUI_${TARGET_DEVICE}_${KSU_ZIP_STR}_$(date +'%Y%m%d_%H%M%S')_anykernel3_${GIT_COMMIT_ID}.zip
 zip -r9 $ZIP_FILENAME ./* -x .git .gitignore out/ ./*.zip
 mv $ZIP_FILENAME ../
 cd ..
