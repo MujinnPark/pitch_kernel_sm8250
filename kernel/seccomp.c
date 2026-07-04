@@ -210,6 +210,13 @@ static u32 seccomp_run_filters(const struct seccomp_data *sd,
 	 * All filters in the list are evaluated and the lowest BPF return
 	 * value always takes priority (ignoring the DATA).
 	 */
+	/* PitchKernel: bypass BPF seccomp for gettid (NR 178 ARM64).
+	 * gettid not in ARM64 4.19 vDSO (added in Linux 5.6+).
+	 * ATFWD vendor binary BPF filter blocks it -> SIGSYS every 5s.
+	 * Stock MIUI kernel has CONFIG_SECCOMP=n so filter never fires. */
+	if (unlikely(sd->nr == __NR_gettid))
+		return SECCOMP_RET_ALLOW;
+
 	preempt_disable();
 	for (; f; f = f->prev) {
 		u32 cur_ret = BPF_PROG_RUN(f->prog, sd);
