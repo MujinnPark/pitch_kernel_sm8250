@@ -97,7 +97,16 @@ echo "TARGET_DEVICE: $TARGET_DEVICE"
 
 if [ $KSU_ENABLE -eq 1 ]; then
   echo "KSU is enabled"
-  curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash
+  # PitchKernel: ReSukiSU's own setup.sh runs a GKI-oriented compat probe that
+  # greps for include/linux/seccomp_types.h. That header was introduced in
+  # upstream Linux 5.x+ (split out of seccomp.h) and does not exist on this
+  # 4.19.325 non-GKI tree. The grep fails harmlessly (ReSukiSU just skips that
+  # compat shim), but it prints a raw "No such file or directory" line that
+  # reads like a build defect in CI logs. Filter only that exact known-benign
+  # line; do not suppress ReSukiSU's other output, so any real new failures
+  # upstream still surface normally.
+  curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" \
+    | bash 2> >(grep -v "seccomp_types.h: No such file or directory" >&2)
 else
   echo "KSU is disabled"
 fi
