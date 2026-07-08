@@ -41,13 +41,28 @@ if ! command -v clang >/dev/null 2>&1; then
 fi
 
 # Enable ccache for speed up compiling
+# PitchKernel: CCACHE_DIR, CCACHE_MAXSIZE, CCACHE_COMPRESS(LEVEL),
+# CCACHE_SLOPPINESS, and CCACHE_IS_KERNEL_COMPILING are all already set by
+# build.yml's "Build kernel" step env: block, using the ccache-ECS binary
+# that step installs and prepends to PATH ahead of any system ccache. Do NOT
+# re-set PATH or CCACHE_SLOPPINESS here.
+#
+# This used to do `export PATH="/usr/lib/ccache:$PATH"`, which on ubuntu-latest
+# runners silently re-prioritizes the apt-installed ccache's compiler symlinks
+# (/usr/lib/ccache/clang etc.) ahead of ccache-ECS on PATH -- exactly the
+# incompatible-cache-format collision build.yml's own "Setup ccache" step
+# comment warns about (ccache-ECS is ccache 4.13.5 format; apt's ccache is
+# 4.9.1). Confirmed via `ccache -s` reporting 0.0/5.0 GiB cache used
+# immediately after a build that had a genuine ~1.4G cache dir on disk
+# (`du -sh` on the same path) -- consistent with compilation being routed
+# through a different ccache binary/cache-format than the one being measured.
+# It also set its own CCACHE_SLOPPINESS, silently overriding build.yml's
+# value since this runs later in the same job.
 export CCACHE_DIR="$HOME/.cache/ccache_mikernel"
 export CC="clang"
 export CXX="clang++"
-export PATH="/usr/lib/ccache:$PATH"
-export CCACHE_COMPILERCHECK=content
-export CCACHE_SLOPPINESS=time_macros,include_file_mtime,include_file_ctime
 echo "CCACHE_DIR: [$CCACHE_DIR]"
+echo "ccache resolved to: [$(command -v ccache || echo 'NOT FOUND ON PATH')]"
 
 MAKE_ARGS="ARCH=arm64 \
 SUBARCH=arm64 \
