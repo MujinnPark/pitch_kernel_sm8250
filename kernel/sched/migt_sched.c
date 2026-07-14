@@ -27,8 +27,8 @@
 
 int __weak enable_pkg_monitor = 1;
 int __weak set_render_as_stask;
-int __weak force_stask_to_big;
-int __weak stask_candidate_num = 1;
+int __weak force_stask_to_big = 1;
+int __weak stask_candidate_num = 2;
 int __weak vip_task_max_num = 15;
 int __weak ip_task_max_num = 5;
 int __weak vip_task_schedboost;
