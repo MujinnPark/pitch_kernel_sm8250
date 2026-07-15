@@ -248,7 +248,7 @@ static ssize_t read_clus_power(int src_cpu, char *buf)
 	u64 w_time, *wtime, *pcost, *atime, fcost;
 
 	if (!init_clus_suc[cid])
-		return snprintf(buf, sizeof(buf), "clus init failed %d\n", cid);
+		return snprintf(buf, PAGE_SIZE, "clus init failed %d\n", cid);
 
 	get_online_cpus();
 	policy = cpufreq_cpu_get(src_cpu);
@@ -259,7 +259,7 @@ static ssize_t read_clus_power(int src_cpu, char *buf)
 	put_online_cpus();
 
 	if (unlikely(!policy))
-		return snprintf(buf, sizeof(buf), "get policy failed %d\n",
+		return snprintf(buf, PAGE_SIZE, "get policy failed %d\n",
 				cid);
 
 	if (debug_pcost)
@@ -364,7 +364,7 @@ static ssize_t show_ea_stat(struct cpufreq_policy *policy, char *buf)
 	int len = 0;
 
 	if (!init_clus_suc[cid])
-		return snprintf(buf, sizeof(buf), "clus init failed %d\n", cid);
+		return snprintf(buf, PAGE_SIZE, "clus init failed %d\n", cid);
 
 	for (i = 0; i < nr_cap; i++) {
 		if (len >= PAGE_SIZE)
