@@ -40,35 +40,33 @@ if ! command -v clang >/dev/null 2>&1; then
   exit 1
 fi
 
-# Enable ccache for speed up compiling
-# PitchKernel: CCACHE_DIR, CCACHE_MAXSIZE, CCACHE_COMPRESS(LEVEL),
-# CCACHE_SLOPPINESS, and CCACHE_IS_KERNEL_COMPILING are all already set by
-# build.yml's "Build kernel" step env: block, using the ccache-ECS binary
-# that step installs and prepends to PATH ahead of any system ccache. Do NOT
-# re-set PATH or CCACHE_SLOPPINESS here.
+# ccache is wrapped explicitly via CC=/HOSTCC= below (CC="ccache clang"),
+# not via PATH symlink tricks. This is a deliberate fix for a confirmed
+# incident: a prior setup relied on PATH ordering to route compilation
+# through a pinned ccache binary, but apt's ccache (4.9.1) drops its own
+# compiler symlinks at /usr/lib/ccache/clang, and if that directory ever
+# landed on PATH ahead of the intended binary, `ccache -s` silently reported
+# 0.0/5.0 GiB used against a real ~1.4G on-disk cache dir. Explicit CC=
+# removes the ambiguity: whichever ccache is literally invoked is the one
+# make actually runs, full stop, no PATH-priority guessing required.
 #
-# This used to do `export PATH="/usr/lib/ccache:$PATH"`, which on ubuntu-latest
-# runners silently re-prioritizes the apt-installed ccache's compiler symlinks
-# (/usr/lib/ccache/clang etc.) ahead of ccache-ECS on PATH -- exactly the
-# incompatible-cache-format collision build.yml's own "Setup ccache" step
-# comment warns about (ccache-ECS is ccache 4.13.5 format; apt's ccache is
-# 4.9.1). Confirmed via `ccache -s` reporting 0.0/5.0 GiB cache used
-# immediately after a build that had a genuine ~1.4G cache dir on disk
-# (`du -sh` on the same path) -- consistent with compilation being routed
-# through a different ccache binary/cache-format than the one being measured.
-# It also set its own CCACHE_SLOPPINESS, silently overriding build.yml's
-# value since this runs later in the same job.
-export CCACHE_DIR="$HOME/.cache/ccache_mikernel"
-export CC="clang"
-export CXX="clang++"
+# CCACHE_DIR, CCACHE_MAXSIZE, CCACHE_COMPILERCHECK, CCACHE_SLOPPINESS,
+# CCACHE_BASEDIR are set by build.yml's "Build kernel" step env: block.
+# Do not re-export or override them here.
+if ! command -v ccache >/dev/null 2>&1; then
+  echo "[ccache] not found on PATH. build.yml's 'Setup ccache' step must run before build.sh."
+  exit 1
+fi
 echo "CCACHE_DIR: [$CCACHE_DIR]"
-echo "ccache resolved to: [$(command -v ccache || echo 'NOT FOUND ON PATH')]"
+echo "ccache resolved to: [$(command -v ccache)] ($(ccache --version | head -1))"
+which -a ccache 2>/dev/null || type -a ccache
+ccache -z
 
 MAKE_ARGS="ARCH=arm64 \
 SUBARCH=arm64 \
 O=out \
-CC=clang \
-HOSTCC=clang \
+CC=\"ccache clang\" \
+HOSTCC=\"ccache clang\" \
 CLANG_TRIPLE=aarch64-linux-gnu- \
 CROSS_COMPILE=aarch64-linux-gnu- \
 CROSS_COMPILE_ARM32=arm-linux-gnueabi- \

@@ -47,21 +47,27 @@ if ! command -v clang >/dev/null 2>&1; then
 fi
 
 
-# Enable ccache for speed up compiling 
-export CCACHE_DIR="$HOME/.cache/ccache_mikernel" 
-export CC="clang"
-export CXX="clang++"
-export PATH="/usr/lib/ccache:$PATH"
-export CCACHE_COMPILERCHECK=content
-export CCACHE_SLOPPINESS=time_macros,include_file_mtime,include_file_ctime
+# ccache is wrapped explicitly via CC=/HOSTCC= below (CC="ccache clang"),
+# not via PATH symlink tricks -- same fix applied to build.sh, applied here
+# too since this script was found still using the old PATH-based approach
+# (export PATH="/usr/lib/ccache:$PATH") after the AOSP-pass fix, which would
+# have silently reintroduced the PATH-collision risk on every MIUI pass.
+# CCACHE_DIR, CCACHE_MAXSIZE, CCACHE_COMPILERCHECK, CCACHE_SLOPPINESS,
+# CCACHE_BASEDIR are set by build.yml's "Build kernel" step env: block.
+if ! command -v ccache >/dev/null 2>&1; then
+  echo "[ccache] not found on PATH. build.yml's 'Setup ccache' step must run before build-miui.sh."
+  exit 1
+fi
 echo "CCACHE_DIR: [$CCACHE_DIR]"
+echo "ccache resolved to: [$(command -v ccache)] ($(ccache --version | head -1))"
+which -a ccache 2>/dev/null || type -a ccache
 
 
 MAKE_ARGS="ARCH=arm64 \
            SUBARCH=arm64 \
            O=out \
-           CC=clang \
-           HOSTCC=clang \
+           CC=\"ccache clang\" \
+           HOSTCC=\"ccache clang\" \
            CLANG_TRIPLE=aarch64-linux-gnu- \
            CROSS_COMPILE=aarch64-linux-gnu- \
            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
