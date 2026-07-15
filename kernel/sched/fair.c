@@ -252,6 +252,7 @@ static void update_sysctl(void)
 void sched_init_granularity(void)
 {
 	update_sysctl();
+	pr_info("PITCHKERNEL_DEBUG: sysctl_sched_min_granularity=%u normalized=%u\n", sysctl_sched_min_granularity, normalized_sysctl_sched_min_granularity);
 }
 
 #define WMULT_CONST	(~0U)
