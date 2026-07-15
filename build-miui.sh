@@ -47,27 +47,38 @@ if ! command -v clang >/dev/null 2>&1; then
 fi
 
 
-# ccache is wrapped explicitly via CC=/HOSTCC= below (CC="ccache clang"),
-# not via PATH symlink tricks -- same fix applied to build.sh, applied here
-# too since this script was found still using the old PATH-based approach
-# (export PATH="/usr/lib/ccache:$PATH") after the AOSP-pass fix, which would
-# have silently reintroduced the PATH-collision risk on every MIUI pass.
+# ccache uses the masquerade method (symlinks named clang/clang++ that shadow
+# the real compiler on PATH), not the prefix method (CC="ccache clang").
+# The prefix method cannot work here: MAKE_ARGS is expanded unquoted below
+# so it gets word-split before make ever sees it -- confirmed failure on
+# the AOSP pass (same MAKE_ARGS pattern): make read CC="ccache and clang"
+# as two separate targets ("No rule to make target 'clang clang'").
+# Only the pinned /usr/local/bin/ccache binary is symlinked here, and this
+# directory is prepended, not appended, so it wins over anything else on PATH.
+#
 # CCACHE_DIR, CCACHE_MAXSIZE, CCACHE_COMPILERCHECK, CCACHE_SLOPPINESS,
 # CCACHE_BASEDIR are set by build.yml's "Build kernel" step env: block.
 if ! command -v ccache >/dev/null 2>&1; then
   echo "[ccache] not found on PATH. build.yml's 'Setup ccache' step must run before build-miui.sh."
   exit 1
 fi
+CCACHE_REAL_BIN="$(command -v ccache)"
+CCACHE_MASQ_DIR="$HOME/.ccache-masquerade"
+mkdir -p "$CCACHE_MASQ_DIR"
+ln -sf "$CCACHE_REAL_BIN" "$CCACHE_MASQ_DIR/clang"
+ln -sf "$CCACHE_REAL_BIN" "$CCACHE_MASQ_DIR/clang++"
+export PATH="$CCACHE_MASQ_DIR:$PATH"
 echo "CCACHE_DIR: [$CCACHE_DIR]"
-echo "ccache resolved to: [$(command -v ccache)] ($(ccache --version | head -1))"
-which -a ccache 2>/dev/null || type -a ccache
+echo "ccache resolved to: [$CCACHE_REAL_BIN] ($(ccache --version | head -1))"
+echo "clang now resolves through masquerade to: [$(command -v clang)]"
+which -a clang 2>/dev/null || type -a clang
 
 
 MAKE_ARGS="ARCH=arm64 \
            SUBARCH=arm64 \
            O=out \
-           CC=\"ccache clang\" \
-           HOSTCC=\"ccache clang\" \
+           CC=clang \
+           HOSTCC=clang \
            CLANG_TRIPLE=aarch64-linux-gnu- \
            CROSS_COMPILE=aarch64-linux-gnu- \
            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \

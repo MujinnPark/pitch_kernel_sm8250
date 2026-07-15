@@ -40,15 +40,22 @@ if ! command -v clang >/dev/null 2>&1; then
   exit 1
 fi
 
-# ccache is wrapped explicitly via CC=/HOSTCC= below (CC="ccache clang"),
-# not via PATH symlink tricks. This is a deliberate fix for a confirmed
-# incident: a prior setup relied on PATH ordering to route compilation
-# through a pinned ccache binary, but apt's ccache (4.9.1) drops its own
-# compiler symlinks at /usr/lib/ccache/clang, and if that directory ever
-# landed on PATH ahead of the intended binary, `ccache -s` silently reported
-# 0.0/5.0 GiB used against a real ~1.4G on-disk cache dir. Explicit CC=
-# removes the ambiguity: whichever ccache is literally invoked is the one
-# make actually runs, full stop, no PATH-priority guessing required.
+# ccache uses the masquerade method (symlinks named clang/clang++ that shadow
+# the real compiler on PATH), not the prefix method (CC="ccache clang").
+# The prefix method cannot work here: MAKE_ARGS is expanded unquoted below
+# (make $MAKE_ARGS ...) so it gets word-split before make ever sees it --
+# any embedded quotes around "ccache clang" become literal characters in
+# the token stream, not shell grouping. Confirmed failure: make read
+# CC="ccache and clang" as two separate targets, producing
+# "target 'clang\"' given more than once in the same rule" / "No rule to
+# make target 'clang clang'". Masquerade avoids this: CC stays "clang",
+# ccache intercepts because its symlink is first on PATH.
+#
+# The masquerade symlinks are created fresh here (not relied upon from
+# build.yml's Setup ccache step) so this script is self-contained and the
+# collision risk is controlled directly: only the pinned /usr/local/bin/ccache
+# binary is symlinked, and this directory is prepended, not appended, so it
+# wins over any other ccache/clang on PATH.
 #
 # CCACHE_DIR, CCACHE_MAXSIZE, CCACHE_COMPILERCHECK, CCACHE_SLOPPINESS,
 # CCACHE_BASEDIR are set by build.yml's "Build kernel" step env: block.
@@ -57,16 +64,23 @@ if ! command -v ccache >/dev/null 2>&1; then
   echo "[ccache] not found on PATH. build.yml's 'Setup ccache' step must run before build.sh."
   exit 1
 fi
+CCACHE_REAL_BIN="$(command -v ccache)"
+CCACHE_MASQ_DIR="$HOME/.ccache-masquerade"
+mkdir -p "$CCACHE_MASQ_DIR"
+ln -sf "$CCACHE_REAL_BIN" "$CCACHE_MASQ_DIR/clang"
+ln -sf "$CCACHE_REAL_BIN" "$CCACHE_MASQ_DIR/clang++"
+export PATH="$CCACHE_MASQ_DIR:$PATH"
 echo "CCACHE_DIR: [$CCACHE_DIR]"
-echo "ccache resolved to: [$(command -v ccache)] ($(ccache --version | head -1))"
-which -a ccache 2>/dev/null || type -a ccache
+echo "ccache resolved to: [$CCACHE_REAL_BIN] ($(ccache --version | head -1))"
+echo "clang now resolves through masquerade to: [$(command -v clang)]"
+which -a clang 2>/dev/null || type -a clang
 ccache -z
 
 MAKE_ARGS="ARCH=arm64 \
 SUBARCH=arm64 \
 O=out \
-CC=\"ccache clang\" \
-HOSTCC=\"ccache clang\" \
+CC=clang \
+HOSTCC=clang \
 CLANG_TRIPLE=aarch64-linux-gnu- \
 CROSS_COMPILE=aarch64-linux-gnu- \
 CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
