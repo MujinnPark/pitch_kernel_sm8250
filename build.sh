@@ -174,6 +174,9 @@ scripts/config --file out/.config \
 scripts/config --file out/.config \
   -e REKERNEL \
   -e REKERNEL_NETWORK
+scripts/config --file out/.config \
+  -d LTO_CLANG \
+  -e LTO_NONE
 
 make $MAKE_ARGS -j$(nproc)
 
@@ -216,7 +219,6 @@ echo "Build for AOSP finished."
 
 # ------------- Building for MIUI -------------
 echo "Clearning [out/] and build for MIUI....."
-rm -rf out/
 
 dts_source=arch/arm64/boot/dts/vendor/qcom
 
