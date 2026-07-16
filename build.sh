@@ -32,6 +32,17 @@ if ! command -v clang >/dev/null 2>&1; then
   exit 1
 fi
 
+# PitchKernel: PITCHKERNEL_NO_CCACHE=1 is a diagnostic escape hatch to test
+# whether ccache's subprocess/pipe handling is the cause of the
+# "LLVM ERROR: IO failure on output stream: Broken pipe" pattern documented
+# in detail further below (search PITCHKERNEL_NO_CCACHE). When set, this
+# entire masquerade block is skipped: no symlinks created, PATH untouched,
+# so `command -v clang` resolves straight to $TOOLCHAIN_PATH/clang with no
+# ccache in front of it. Normal builds (this var unset) are completely
+# unaffected -- this only changes behavior when explicitly opted into.
+if [ "${PITCHKERNEL_NO_CCACHE:-0}" == "1" ]; then
+  echo "PITCHKERNEL_NO_CCACHE=1 -- DIAGNOSTIC: skipping ccache masquerade entirely, compiling with real clang directly (no cache reuse, not a normal build path)."
+else
 # ccache uses the masquerade method (symlinks named clang/clang++ that shadow
 # the real compiler on PATH), not the prefix method (CC="ccache clang").
 # The prefix method cannot work here: MAKE_ARGS is expanded unquoted below
@@ -67,49 +78,51 @@ echo "ccache resolved to: [$CCACHE_REAL_BIN] ($(ccache --version | head -1))"
 echo "clang now resolves through masquerade to: [$(command -v clang)]"
 which -a clang 2>/dev/null || type -a clang
 ccache -z
+fi
 
-# PitchKernel: munch_defconfig sets CONFIG_LTO_CLANG=y without CONFIG_THINLTO,
-# so the kernel Makefile takes the full/monolithic -flto path (Makefile
-# ~line 895), not ThinLTO. Full LTO's codegen backend still spawns internal
-# worker threads sized to nproc via LLVM's threading, same as -j$(nproc)
-# does for the compile phase. On a 4-core ubuntu-24.04 runner these two
-# layers of parallelism (make -j4 + LTO's own internal threads during the
-# final link) compete for RAM/fds and intermittently produce
-# "LLVM ERROR: IO failure on output stream: Broken pipe" from lld's LTO
-# backend. Observed non-fatal in run 29497655576 (463 occurrences, build
-# still succeeded) but this is not proof it is always harmless -- a
-# corrupted-but-linkable object is exactly the silent-failure class this
-# project's CI gates exist to catch. Capping LTO's internal thread count
-# below nproc removes the contention instead of hoping it stays benign.
-# -mllvm -threads=N is the correct knob for full (non-Thin) LTO in lld;
-# --thinlto-jobs only applies when CONFIG_THINLTO/--thinlto-cache-dir is set,
-# which it is not here -- do not swap this for --thinlto-jobs unless
-# CONFIG_THINLTO is also enabled in munch_defconfig.
+# PitchKernel: DIAGNOSIS CORRECTED (see history below -- do not re-add an
+# LTO thread cap without re-reading this).
 #
-# DIAGNOSTIC CHANGE (run 79949305509): nproc/2 (2 threads on this 4-core
-# runner) reduced the count from 463 to 376 -- about 19% -- not eliminated.
-# A pure thread-contention cause would be expected to respond more strongly
-# to a 50% cut in thread count than a 19% drop in error count. Forcing
-# threads=1 here is a deliberate diagnostic, not assumed to be the final
-# fix: if the count drops to exactly 0, thread contention is confirmed as
-# the real mechanism and the value can be tuned back up from 1 to find the
-# actual safe ceiling. If it does NOT drop to 0 even fully serialized, the
-# -mllvm -threads flag is not controlling whatever is actually causing this,
-# and the next step is to stop adjusting this number and instead check
-# whether lld's LTO backend accepts -mllvm -threads at all in this exact
-# clang/lld version, or whether the errors are coming from a different
-# stage entirely (e.g. ccache's process handling, not LTO codegen itself).
-LTO_LINK_JOBS=1
-echo "Capping LTO link-time threads at: [$LTO_LINK_JOBS] (nproc=$(nproc)) -- DIAGNOSTIC: forced to 1, see comment above."
-
-# Exported as a real env var, NOT appended into MAKE_ARGS: MAKE_ARGS is
-# expanded unquoted below (make $MAKE_ARGS ...) and gets word-split, so any
-# value containing a space (the "-mllvm -threads=N" pair needs one) would
-# be torn into two separate make tokens and silently misparsed -- the exact
-# failure class already documented above for CC="ccache clang". The
-# Makefile does `KBUILD_LDFLAGS += ...` (additive), so exporting here
-# composes with the existing LTO ldflags instead of clobbering them.
-export KBUILD_LDFLAGS="-mllvm -threads=${LTO_LINK_JOBS}"
+# Original theory: CONFIG_LTO_CLANG=y without CONFIG_THINLTO means full/
+# monolithic LTO, whose codegen backend spawns its own worker threads,
+# contending with make -j$(nproc) on this 4-core runner and producing
+# "LLVM ERROR: IO failure on output stream: Broken pipe". Tried capping
+# threads via KBUILD_LDFLAGS=-mllvm -threads=N: nproc/2 (2 threads) took
+# the count from 463 -> 376 (~19%); threads=1 (fully serialized) took it
+# to 304. A real thread-contention cause should collapse to ~0 once fully
+# serialized. It didn't -- proof the LTO theory was wrong, not just
+# imperfectly tuned.
+#
+# Actual evidence (from the full 10262-line captured build log, run
+# 79952562307, artifact pitchkernel-build-step-log): the 304 occurrences
+# span from line 294 to line 9959 -- essentially the entire file -- and
+# each one sits directly between two unrelated, ordinary `CC`/`HOSTCC`
+# lines (e.g. between smp.o and sha256-core.o, between filemap.o and
+# bpf_lsm.o). The kernel's single full-LTO link/codegen pass happens once,
+# at the very end, after every .o file compiles -- these errors are
+# scattered through ordinary per-file parallel compilation instead, which
+# rules out LTO codegen as the mechanism entirely. The LTO thread cap has
+# been removed; it was solving the wrong problem.
+#
+# Every single one of the 7753 CC/HOSTCC invocations in that build log
+# went through the ccache masquerade wrapper below (clang is symlinked to
+# ccache, so ccache is the one directly spawning and piping every real
+# clang subprocess under make -j4 parallel load). That is the next actual
+# suspect implicated by the evidence, not a new guess: ccache managing 4
+# concurrent compiler subprocesses' stdout/stderr pipes is a mechanism
+# that plausibly produces exactly this symptom (LLVM aborts hard, non-
+# recoverably, on any EPIPE while writing a diagnostic -- confirmed
+# upstream behavior, see llvm-project#174173 and #73014), and ccache sits
+# directly in that path for every affected line.
+#
+# PITCHKERNEL_NO_CCACHE=1 (see the real gate around line 43 above, which
+# actually skips the masquerade) is checked there; if the broken-pipe count
+# drops to 0 with ccache out of the loop, ccache's subprocess/pipe handling
+# is confirmed as the real cause. If it does NOT drop to 0, ccache is
+# cleared too, and the next place to look is GitHub Actions' own log-
+# streaming/forwarding of the runner's stdout, which is the only other
+# thing that touches every one of these lines regardless of which file is
+# being compiled.
 
 MAKE_ARGS="ARCH=arm64 \
 SUBARCH=arm64 \
