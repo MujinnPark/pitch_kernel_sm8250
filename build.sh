@@ -85,11 +85,22 @@ ccache -z
 # --thinlto-jobs only applies when CONFIG_THINLTO/--thinlto-cache-dir is set,
 # which it is not here -- do not swap this for --thinlto-jobs unless
 # CONFIG_THINLTO is also enabled in munch_defconfig.
-LTO_LINK_JOBS=$(( $(nproc) / 2 ))
-if [ "$LTO_LINK_JOBS" -lt 1 ]; then
-  LTO_LINK_JOBS=1
-fi
-echo "Capping LTO link-time threads at: [$LTO_LINK_JOBS] (nproc=$(nproc))"
+#
+# DIAGNOSTIC CHANGE (run 79949305509): nproc/2 (2 threads on this 4-core
+# runner) reduced the count from 463 to 376 -- about 19% -- not eliminated.
+# A pure thread-contention cause would be expected to respond more strongly
+# to a 50% cut in thread count than a 19% drop in error count. Forcing
+# threads=1 here is a deliberate diagnostic, not assumed to be the final
+# fix: if the count drops to exactly 0, thread contention is confirmed as
+# the real mechanism and the value can be tuned back up from 1 to find the
+# actual safe ceiling. If it does NOT drop to 0 even fully serialized, the
+# -mllvm -threads flag is not controlling whatever is actually causing this,
+# and the next step is to stop adjusting this number and instead check
+# whether lld's LTO backend accepts -mllvm -threads at all in this exact
+# clang/lld version, or whether the errors are coming from a different
+# stage entirely (e.g. ccache's process handling, not LTO codegen itself).
+LTO_LINK_JOBS=1
+echo "Capping LTO link-time threads at: [$LTO_LINK_JOBS] (nproc=$(nproc)) -- DIAGNOSTIC: forced to 1, see comment above."
 
 # Exported as a real env var, NOT appended into MAKE_ARGS: MAKE_ARGS is
 # expanded unquoted below (make $MAKE_ARGS ...) and gets word-split, so any
