@@ -68,6 +68,38 @@ echo "clang now resolves through masquerade to: [$(command -v clang)]"
 which -a clang 2>/dev/null || type -a clang
 ccache -z
 
+# PitchKernel: munch_defconfig sets CONFIG_LTO_CLANG=y without CONFIG_THINLTO,
+# so the kernel Makefile takes the full/monolithic -flto path (Makefile
+# ~line 895), not ThinLTO. Full LTO's codegen backend still spawns internal
+# worker threads sized to nproc via LLVM's threading, same as -j$(nproc)
+# does for the compile phase. On a 4-core ubuntu-24.04 runner these two
+# layers of parallelism (make -j4 + LTO's own internal threads during the
+# final link) compete for RAM/fds and intermittently produce
+# "LLVM ERROR: IO failure on output stream: Broken pipe" from lld's LTO
+# backend. Observed non-fatal in run 29497655576 (463 occurrences, build
+# still succeeded) but this is not proof it is always harmless -- a
+# corrupted-but-linkable object is exactly the silent-failure class this
+# project's CI gates exist to catch. Capping LTO's internal thread count
+# below nproc removes the contention instead of hoping it stays benign.
+# -mllvm -threads=N is the correct knob for full (non-Thin) LTO in lld;
+# --thinlto-jobs only applies when CONFIG_THINLTO/--thinlto-cache-dir is set,
+# which it is not here -- do not swap this for --thinlto-jobs unless
+# CONFIG_THINLTO is also enabled in munch_defconfig.
+LTO_LINK_JOBS=$(( $(nproc) / 2 ))
+if [ "$LTO_LINK_JOBS" -lt 1 ]; then
+  LTO_LINK_JOBS=1
+fi
+echo "Capping LTO link-time threads at: [$LTO_LINK_JOBS] (nproc=$(nproc))"
+
+# Exported as a real env var, NOT appended into MAKE_ARGS: MAKE_ARGS is
+# expanded unquoted below (make $MAKE_ARGS ...) and gets word-split, so any
+# value containing a space (the "-mllvm -threads=N" pair needs one) would
+# be torn into two separate make tokens and silently misparsed -- the exact
+# failure class already documented above for CC="ccache clang". The
+# Makefile does `KBUILD_LDFLAGS += ...` (additive), so exporting here
+# composes with the existing LTO ldflags instead of clobbering them.
+export KBUILD_LDFLAGS="-mllvm -threads=${LTO_LINK_JOBS}"
+
 MAKE_ARGS="ARCH=arm64 \
 SUBARCH=arm64 \
 O=out \
