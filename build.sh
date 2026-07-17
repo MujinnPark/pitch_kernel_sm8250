@@ -140,12 +140,53 @@ OBJCOPY=llvm-objcopy \
 OBJDUMP=llvm-objdump \
 STRIP=llvm-strip"
 
+# PitchKernel: DIAGNOSTIC. Two prior theories for "LLVM ERROR: IO failure
+# on output stream: Broken pipe" are now ruled out by direct evidence:
+#   - Full LTO codegen: ruled out twice over. (1) errors span the entire
+#     ~10k-line compile phase (first seen ~line 290, last ~line 9959-10100
+#     across multiple runs), not clustered at the single final LTO link,
+#     which only happens once at the very end. (2) More fundamentally:
+#     both build paths below (AOSP ~line 272, MIUI ~line 425) run
+#     `scripts/config -d LTO_CLANG -e LTO_NONE` immediately before their
+#     real `make` call, explicitly overriding munch_defconfig's
+#     CONFIG_LTO_CLANG=y. LTO was never actually enabled in any build this
+#     script has produced -- the original theory was chasing a subsystem
+#     that was off the whole time. Confirmed by grep across this file, not
+#     assumed.
+#   - ccache: run 79958527969 set PITCHKERNEL_NO_CCACHE=1 (see that flag's
+#     gate above -- confirmed engaged via the printed diagnostic line and
+#     clang resolving straight to $TOOLCHAIN_PATH, no masquerade). Error
+#     count went 304 -> 452 with ccache fully removed -- higher, not lower.
+#     Ruled out.
+# Remaining suspect implicated by the evidence: make -j$(nproc) itself.
+# 4 concurrent clang processes writing to one combined stdout/stderr
+# stream that GitHub Actions' runner captures and forwards is a plausible
+# mechanism regardless of what wraps clang (ccache or not) -- if the
+# runner's log-forwarding briefly can't keep up under 4-way concurrent
+# write load, a writer can see EPIPE, and clang's LLVM backend is
+# documented upstream (llvm-project#174173, #73014) to abort hard and
+# unrecoverably on any EPIPE on its output stream rather than retry/ignore.
+# PITCHKERNEL_SERIAL_BUILD=1 forces -j1 (no concurrent clang processes at
+# all) for this one diagnostic build. This will be dramatically slower --
+# do not leave this set for regular builds. If the count drops to 0 at
+# -j1, make-level parallelism vs GHA's log capture is confirmed as the
+# real mechanism. If it does NOT drop to 0 even fully serial, the
+# remaining explanation is something in this exact clang/lld build
+# (Neutron clang 23.0.0git -- a dev snapshot, not a stable release) itself,
+# independent of parallelism and ccache -- at that point the next step is
+# checking whether a stable clang release reproduces it.
+JOBS="$(nproc)"
+if [ "${PITCHKERNEL_SERIAL_BUILD:-0}" == "1" ]; then
+  JOBS=1
+  echo "PITCHKERNEL_SERIAL_BUILD=1 -- DIAGNOSTIC: forcing -j1 (fully serial build, no concurrent clang processes). This will be much slower than normal."
+fi
+
 if [ "$1" == "j1" ]; then
   make $MAKE_ARGS -j1
   exit
 fi
 if [ "$1" == "continue" ]; then
-  make $MAKE_ARGS -j$(nproc)
+  make $MAKE_ARGS -j"$JOBS"
   exit
 fi
 
@@ -238,7 +279,7 @@ scripts/config --file out/.config \
   -d LTO_CLANG \
   -e LTO_NONE
 
-make $MAKE_ARGS -j$(nproc)
+make $MAKE_ARGS -j"$JOBS"
 
 if [ -f "out/arch/arm64/boot/Image" ]; then
   echo "The file [out/arch/arm64/boot/Image] exists. AOSP Build successfully."
@@ -404,7 +445,7 @@ scripts/config --file out/.config \
   -d REKERNEL \
   -d REKERNEL_NETWORK
 
-make $MAKE_ARGS -j$(nproc)
+make $MAKE_ARGS -j"$JOBS"
 
 if [ -f "out/arch/arm64/boot/Image" ]; then
   echo "The file [out/arch/arm64/boot/Image] exists. MIUI Build successfully."
