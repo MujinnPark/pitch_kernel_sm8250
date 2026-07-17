@@ -7892,6 +7892,61 @@ cpu_cgroup_css_alloc(struct cgroup_subsys_state *parent_css)
 	return &tg->css;
 }
 
+#ifdef CONFIG_UCLAMP_TASK_GROUP
+/*
+ * Hard-coded default uclamp min/max for the well-known Android top-level
+ * cpuctl cgroups. Values are raw SCHED_CAPACITY_SCALE units (0..1024), not
+ * exposed as tunables. Applied once, unconditionally, the moment each
+ * cgroup is brought online by cgroupfs -- there is no userspace write path
+ * involved and no way to override them from userspace afterward without a
+ * kernel rebuild, since cpu_uclamp_write() will simply overwrite whatever
+ * a later write requests (matching upstream behavior); nothing here can
+ * prevent a subsequent write, but nothing in this tree issues one for
+ * these names.
+ */
+struct uclamp_default_entry {
+	const char *name;
+	unsigned int min;
+	unsigned int max;
+};
+
+static const struct uclamp_default_entry uclamp_forced_defaults[] = {
+	{ "top-app",	384,	1024 },
+	{ "foreground",	128,	768  },
+	{ "background",	0,	512  },
+	{ "system",	64,	1024 },
+};
+
+static void force_uclamp_group_defaults(struct cgroup_subsys_state *css)
+{
+	struct task_group *tg = css_tg(css);
+	const char *name;
+	int i;
+
+	if (!css->cgroup || !css->cgroup->kn)
+		return;
+
+	name = css->cgroup->kn->name;
+	if (!name)
+		return;
+
+	for (i = 0; i < ARRAY_SIZE(uclamp_forced_defaults); i++) {
+		if (strcmp(name, uclamp_forced_defaults[i].name))
+			continue;
+
+		uclamp_se_set(&tg->uclamp_req[UCLAMP_MIN],
+			      uclamp_forced_defaults[i].min, false);
+		uclamp_se_set(&tg->uclamp_req[UCLAMP_MAX],
+			      uclamp_forced_defaults[i].max, false);
+		tg->uclamp_pct[UCLAMP_MIN] =
+			uclamp_forced_defaults[i].min * 100 / SCHED_CAPACITY_SCALE;
+		tg->uclamp_pct[UCLAMP_MAX] =
+			uclamp_forced_defaults[i].max * 100 / SCHED_CAPACITY_SCALE;
+		break;
+	}
+}
+#endif /* CONFIG_UCLAMP_TASK_GROUP */
+
 /* Expose task group only after completing cgroup initialization */
 static int cpu_cgroup_css_online(struct cgroup_subsys_state *css)
 {
@@ -7902,10 +7957,15 @@ static int cpu_cgroup_css_online(struct cgroup_subsys_state *css)
 		sched_online_group(tg, parent);
 
 #ifdef CONFIG_UCLAMP_TASK_GROUP
-	/* Propagate the effective uclamp value for the new group */
 	mutex_lock(&uclamp_mutex);
 	rcu_read_lock();
+
+	/* Force the hard-coded min/max for known Android cgroup names */
+	force_uclamp_group_defaults(css);
+
+	/* Propagate the effective uclamp value for the new group */
 	cpu_util_update_eff(css);
+
 	rcu_read_unlock();
 	mutex_unlock(&uclamp_mutex);
 #endif

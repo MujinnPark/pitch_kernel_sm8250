@@ -1,0 +1,106 @@
+[1mdiff --git a/arch/arm64/configs/munch_defconfig b/arch/arm64/configs/munch_defconfig[m
+[1mindex c291589bf1f9..98239f3fb194 100644[m
+[1m--- a/arch/arm64/configs/munch_defconfig[m
+[1m+++ b/arch/arm64/configs/munch_defconfig[m
+[36m@@ -21,6 +21,9 @@[m [mCONFIG_MEMCG=y[m
+ CONFIG_MEMCG_SWAP=y[m
+ CONFIG_BLK_CGROUP=y[m
+ CONFIG_CGROUP_SCHED=y[m
+[32m+[m[32mCONFIG_UCLAMP_TASK=y[m
+[32m+[m[32mCONFIG_UCLAMP_BUCKETS_COUNT=5[m
+[32m+[m[32mCONFIG_UCLAMP_TASK_GROUP=y[m
+ CONFIG_CFS_BANDWIDTH=y[m
+ CONFIG_CGROUP_FREEZER=y[m
+ CONFIG_CPUSETS=y[m
+[36m@@ -29,7 +32,7 @@[m [mCONFIG_CGROUP_BPF=y[m
+ CONFIG_SCHED_CORE_CTL=y[m
+ CONFIG_NAMESPACES=y[m
+ # CONFIG_PID_NS is not set[m
+[31m-CONFIG_SCHED_TUNE=y[m
+[32m+[m[32m# CONFIG_SCHED_TUNE is not set (Kconfig: depends on !UCLAMP_TASK, mutually exclusive)[m
+ CONFIG_BLK_DEV_INITRD=y[m
+ # CONFIG_RD_XZ is not set[m
+ # CONFIG_RD_LZO is not set[m
+[1mdiff --git a/kernel/sched/core.c b/kernel/sched/core.c[m
+[1mindex 0ce68a0eb909..951bebbad547 100644[m
+[1m--- a/kernel/sched/core.c[m
+[1m+++ b/kernel/sched/core.c[m
+[36m@@ -7892,6 +7892,61 @@[m [mcpu_cgroup_css_alloc(struct cgroup_subsys_state *parent_css)[m
+ 	return &tg->css;[m
+ }[m
+ [m
+[32m+[m[32m#ifdef CONFIG_UCLAMP_TASK_GROUP[m
+[32m+[m[32m/*[m
+[32m+[m[32m * Hard-coded default uclamp min/max for the well-known Android top-level[m
+[32m+[m[32m * cpuctl cgroups. Values are raw SCHED_CAPACITY_SCALE units (0..1024), not[m
+[32m+[m[32m * exposed as tunables. Applied once, unconditionally, the moment each[m
+[32m+[m[32m * cgroup is brought online by cgroupfs -- there is no userspace write path[m
+[32m+[m[32m * involved and no way to override them from userspace afterward without a[m
+[32m+[m[32m * kernel rebuild, since cpu_uclamp_write() will simply overwrite whatever[m
+[32m+[m[32m * a later write requests (matching upstream behavior); nothing here can[m
+[32m+[m[32m * prevent a subsequent write, but nothing in this tree issues one for[m
+[32m+[m[32m * these names.[m
+[32m+[m[32m */[m
+[32m+[m[32mstruct uclamp_default_entry {[m
+[32m+[m	[32mconst char *name;[m
+[32m+[m	[32munsigned int min;[m
+[32m+[m	[32munsigned int max;[m
+[32m+[m[32m};[m
+[32m+[m
+[32m+[m[32mstatic const struct uclamp_default_entry uclamp_forced_defaults[] = {[m
+[32m+[m	[32m{ "top-app",	384,	1024 },[m
+[32m+[m	[32m{ "foreground",	128,	768  },[m
+[32m+[m	[32m{ "background",	0,	512  },[m
+[32m+[m	[32m{ "system",	64,	1024 },[m
+[32m+[m[32m};[m
+[32m+[m
+[32m+[m[32mstatic void force_uclamp_group_defaults(struct cgroup_subsys_state *css)[m
+[32m+[m[32m{[m
+[32m+[m	[32mstruct task_group *tg = css_tg(css);[m
+[32m+[m	[32mconst char *name;[m
+[32m+[m	[32mint i;[m
+[32m+[m
+[32m+[m	[32mif (!css->cgroup || !css->cgroup->kn)[m
+[32m+[m		[32mreturn;[m
+[32m+[m
+[32m+[m	[32mname = css->cgroup->kn->name;[m
+[32m+[m	[32mif (!name)[m
+[32m+[m		[32mreturn;[m
+[32m+[m
+[32m+[m	[32mfor (i = 0; i < ARRAY_SIZE(uclamp_forced_defaults); i++) {[m
+[32m+[m		[32mif (strcmp(name, uclamp_forced_defaults[i].name))[m
+[32m+[m			[32mcontinue;[m
+[32m+[m
+[32m+[m		[32muclamp_se_set(&tg->uclamp_req[UCLAMP_MIN],[m
+[32m+[m			[32m      uclamp_forced_defaults[i].min, false);[m
+[32m+[m		[32muclamp_se_set(&tg->uclamp_req[UCLAMP_MAX],[m
+[32m+[m			[32m      uclamp_forced_defaults[i].max, false);[m
+[32m+[m		[32mtg->uclamp_pct[UCLAMP_MIN] =[m
+[32m+[m			[32muclamp_forced_defaults[i].min * 100 / SCHED_CAPACITY_SCALE;[m
+[32m+[m		[32mtg->uclamp_pct[UCLAMP_MAX] =[m
+[32m+[m			[32muclamp_forced_defaults[i].max * 100 / SCHED_CAPACITY_SCALE;[m
+[32m+[m		[32mbreak;[m
+[32m+[m	[32m}[m
+[32m+[m[32m}[m
+[32m+[m[32m#endif /* CONFIG_UCLAMP_TASK_GROUP */[m
+[32m+[m
+ /* Expose task group only after completing cgroup initialization */[m
+ static int cpu_cgroup_css_online(struct cgroup_subsys_state *css)[m
+ {[m
+[36m@@ -7902,10 +7957,15 @@[m [mstatic int cpu_cgroup_css_online(struct cgroup_subsys_state *css)[m
+ 		sched_online_group(tg, parent);[m
+ [m
+ #ifdef CONFIG_UCLAMP_TASK_GROUP[m
+[31m-	/* Propagate the effective uclamp value for the new group */[m
+ 	mutex_lock(&uclamp_mutex);[m
+ 	rcu_read_lock();[m
+[32m+[m
+[32m+[m	[32m/* Force the hard-coded min/max for known Android cgroup names */[m
+[32m+[m	[32mforce_uclamp_group_defaults(css);[m
+[32m+[m
+[32m+[m	[32m/* Propagate the effective uclamp value for the new group */[m
+ 	cpu_util_update_eff(css);[m
+[32m+[m
+ 	rcu_read_unlock();[m
+ 	mutex_unlock(&uclamp_mutex);[m
+ #endif[m
