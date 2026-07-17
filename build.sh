@@ -140,41 +140,34 @@ OBJCOPY=llvm-objcopy \
 OBJDUMP=llvm-objdump \
 STRIP=llvm-strip"
 
-# PitchKernel: DIAGNOSTIC. Two prior theories for "LLVM ERROR: IO failure
-# on output stream: Broken pipe" are now ruled out by direct evidence:
-#   - Full LTO codegen: ruled out twice over. (1) errors span the entire
-#     ~10k-line compile phase (first seen ~line 290, last ~line 9959-10100
-#     across multiple runs), not clustered at the single final LTO link,
-#     which only happens once at the very end. (2) More fundamentally:
-#     both build paths below (AOSP ~line 272, MIUI ~line 425) run
-#     `scripts/config -d LTO_CLANG -e LTO_NONE` immediately before their
-#     real `make` call, explicitly overriding munch_defconfig's
-#     CONFIG_LTO_CLANG=y. LTO was never actually enabled in any build this
-#     script has produced -- the original theory was chasing a subsystem
-#     that was off the whole time. Confirmed by grep across this file, not
-#     assumed.
-#   - ccache: run 79958527969 set PITCHKERNEL_NO_CCACHE=1 (see that flag's
-#     gate above -- confirmed engaged via the printed diagnostic line and
-#     clang resolving straight to $TOOLCHAIN_PATH, no masquerade). Error
-#     count went 304 -> 452 with ccache fully removed -- higher, not lower.
-#     Ruled out.
-# Remaining suspect implicated by the evidence: make -j$(nproc) itself.
-# 4 concurrent clang processes writing to one combined stdout/stderr
-# stream that GitHub Actions' runner captures and forwards is a plausible
-# mechanism regardless of what wraps clang (ccache or not) -- if the
-# runner's log-forwarding briefly can't keep up under 4-way concurrent
-# write load, a writer can see EPIPE, and clang's LLVM backend is
-# documented upstream (llvm-project#174173, #73014) to abort hard and
-# unrecoverably on any EPIPE on its output stream rather than retry/ignore.
-# PITCHKERNEL_SERIAL_BUILD=1 forces -j1 (no concurrent clang processes at
-# all) for this one diagnostic build. This will be dramatically slower --
-# do not leave this set for regular builds. If the count drops to 0 at
-# -j1, make-level parallelism vs GHA's log capture is confirmed as the
-# real mechanism. If it does NOT drop to 0 even fully serial, the
-# remaining explanation is something in this exact clang/lld build
-# (Neutron clang 23.0.0git -- a dev snapshot, not a stable release) itself,
-# independent of parallelism and ccache -- at that point the next step is
-# checking whether a stable clang release reproduces it.
+# PitchKernel: "LLVM ERROR: IO failure on output stream: Broken pipe"
+# (present in every build for an extended period, 463/376/304/452/319
+# occurrences observed across different diagnostic runs) was root-caused to
+# the compiler toolchain itself, not anything in this script or build.yml:
+#   - Not full LTO codegen: never actually enabled in any build this script
+#     produces. Both build paths (AOSP and MIUI) run `scripts/config -d
+#     LTO_CLANG -e LTO_NONE` immediately before their real `make` call,
+#     unconditionally overriding munch_defconfig's CONFIG_LTO_CLANG=y.
+#   - Not ccache: bypassing it entirely (PITCHKERNEL_NO_CCACHE=1) made the
+#     error count worse (304 -> 452), not better.
+#   - Not make -j parallelism: fully serial (PITCHKERNEL_SERIAL_BUILD=1,
+#     -j1, zero concurrent clang processes) still produced 319 occurrences.
+#   - Not make's SIGPIPE-ignore-for-children behavior (make >=4.4) -- the
+#     GHA ubuntu-24.04 runner's make is 4.3.
+# Actual cause: the CI workflow (build.yml, "Setup ZyCromerZ Clang" step)
+# was installing Neutron clang 23.0.0git, a development snapshot from an
+# unreleased commit, rather than a numbered stable release. Switching to
+# ZyCromerZ Clang 16.0.6-20260510 (a stable release) eliminated the error
+# entirely -- 0 occurrences, full pipeline green including SUSFS
+# verification and release publish (run 80019238803). The dev snapshot
+# carried some flavor of clang's documented raw_ostream/EPIPE hard-abort
+# behavior (llvm-project#174173, #73014) that the stable release doesn't
+# trigger under this build's actual I/O pattern.
+#
+# PITCHKERNEL_NO_CCACHE and PITCHKERNEL_SERIAL_BUILD flags below remain
+# available for future re-diagnosis if a different broken-pipe-class issue
+# ever appears, but should stay unset for normal builds -- both make builds
+# significantly slower for no benefit now that this question is closed.
 JOBS="$(nproc)"
 if [ "${PITCHKERNEL_SERIAL_BUILD:-0}" == "1" ]; then
   JOBS=1
