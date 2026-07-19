@@ -312,8 +312,8 @@ unsigned long glk_cal_freq(struct cpufreq_policy *policy, unsigned long util,
 	game_load = prev_game_load->cpu_util[cid];
 	glk_load = game_load * 100 / capacity_orig_of(policy->cpu);
 
-	soft_minfreq = glk_maxfreq_limit ? glk_maxfreq[cid] : policy->max;
-	soft_maxfreq = glk_minfreq_limit ? glk_minfreq[cid] : policy->min;
+	soft_maxfreq = glk_maxfreq_limit ? glk_maxfreq[cid] : policy->max;
+	soft_minfreq = glk_minfreq_limit ? glk_minfreq[cid] : policy->min;
 	if (unlikely((soft_maxfreq < soft_minfreq) || !frame_period))
 		return 0;
 
