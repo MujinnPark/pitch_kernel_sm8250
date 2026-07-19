@@ -6300,7 +6300,7 @@ stune_util(int cpu, unsigned long other_util,
 
 	trace_sched_boost_cpu(cpu, util, margin);
 
-	return util + margin;
+	return min_t(unsigned long, SCHED_CAPACITY_SCALE, util + margin);
 }
 
 #else /* CONFIG_SCHED_TUNE */
