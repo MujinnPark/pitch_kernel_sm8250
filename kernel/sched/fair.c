@@ -6294,13 +6294,14 @@ unsigned long
 stune_util(int cpu, unsigned long other_util,
 		 struct sched_walt_cpu_load *walt_load)
 {
-	unsigned long util = min_t(unsigned long, SCHED_CAPACITY_SCALE,
+	unsigned long capacity = capacity_orig_of(cpu);
+	unsigned long util = min_t(unsigned long, capacity,
 				   cpu_util_freq(cpu, walt_load) + other_util);
 	long margin = schedtune_cpu_margin_with(util, cpu, NULL);
 
 	trace_sched_boost_cpu(cpu, util, margin);
 
-	return min_t(unsigned long, SCHED_CAPACITY_SCALE, util + margin);
+	return min_t(unsigned long, capacity, util + margin);
 }
 
 #else /* CONFIG_SCHED_TUNE */
