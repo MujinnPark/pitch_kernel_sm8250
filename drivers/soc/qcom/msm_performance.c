@@ -102,8 +102,23 @@ static int set_cpu_min_freq(const char *buf, const struct kernel_param *kp)
 			 * despite max itself being correctly capped.
 			 */
 			if (!cpufreq_get_policy(&cur_policy, cpu) &&
-			    val > cur_policy.max)
-				val = cur_policy.max;
+			    val >= cur_policy.max) {
+				int idx = cpufreq_frequency_table_target(&cur_policy,
+						cur_policy.max - 1, CPUFREQ_RELATION_H);
+
+				/*
+				 * A flat '>' clamp still let val == cur_policy.max
+				 * through, which collapses the CPU to a single
+				 * legal frequency just as effectively as exceeding
+				 * max (confirmed live via cpu_frequency_limits
+				 * ftrace: perf@2.2-service setting min and max to
+				 * the same value in one request). Step down to the
+				 * real table entry below max instead of a guessed
+				 * margin.
+				 */
+				val = (idx >= 0) ? cur_policy.freq_table[idx].frequency
+						  : cur_policy.max;
+			}
 
 			i_cpu_stats->min = val;
 			cpumask_set_cpu(cpu, limit_mask);

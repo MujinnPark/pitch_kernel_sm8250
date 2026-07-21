@@ -249,8 +249,22 @@ static int boost_adjust_notify(struct notifier_block *nb, unsigned long val,
 		 * a performance-governor pin despite the configured
 		 * ceiling never having been raised anywhere else.
 		 */
-		if (ib_min > policy->max)
-			ib_min = policy->max;
+		if (ib_min >= policy->max) {
+			int idx = cpufreq_frequency_table_target(policy,
+					policy->max - 1, CPUFREQ_RELATION_H);
+
+			/*
+			 * A flat '>' clamp still let ib_min == policy->max
+			 * through, which collapses the CPU to a single legal
+			 * frequency exactly as effectively as ib_min exceeding
+			 * max (confirmed live: perf@2.2-service and
+			 * MiuiBoosterService boost requests set min and max to
+			 * the same value together). Step down to the real
+			 * table entry below max instead of a guessed margin.
+			 */
+			ib_min = (idx >= 0) ? policy->freq_table[idx].frequency
+					     : policy->max;
+		}
 
 		pr_debug("CPU%u policy min before boost: %u kHz\n",
 			 cpu, policy->min);
