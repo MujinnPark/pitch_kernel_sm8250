@@ -80,7 +80,30 @@ static int set_cpu_min_freq(const char *buf, const struct kernel_param *kp)
 			break;
 
 		if (cpu_possible(cpu)) {
+			struct cpufreq_policy cur_policy;
+
 			i_cpu_stats = &per_cpu(msm_perf_cpu_stats, cpu);
+
+			/*
+			 * Mirror of the clamp in set_cpu_max_freq(): clamp
+			 * incoming min-freq requests to the currently configured
+			 * policy->max for this CPU, so a min-freq request can
+			 * never exceed (and therefore never collapse onto) the
+			 * user/kernel-manager configured ceiling.
+			 *
+			 * Confirmed live via cpu_frequency_limits ftrace: with
+			 * only set_cpu_max_freq() clamped, min still tracked an
+			 * unclamped request through this path (same
+			 * boost-request callers as cpu_max_freq — the perf HAL /
+			 * MiuiBoosterService boost calls appear to set both
+			 * min and max together) and would periodically equal
+			 * policy->max, producing a locked min==max window
+			 * functionally identical to a performance-governor pin
+			 * despite max itself being correctly capped.
+			 */
+			if (!cpufreq_get_policy(&cur_policy, cpu) &&
+			    val > cur_policy.max)
+				val = cur_policy.max;
 
 			i_cpu_stats->min = val;
 			cpumask_set_cpu(cpu, limit_mask);
