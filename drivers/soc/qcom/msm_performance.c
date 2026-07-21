@@ -159,7 +159,34 @@ static int set_cpu_max_freq(const char *buf, const struct kernel_param *kp)
 			break;
 
 		if (cpu_possible(cpu)) {
+			struct cpufreq_policy cur_policy;
+
 			i_cpu_stats = &per_cpu(msm_perf_cpu_stats, cpu);
+
+			/*
+			 * Clamp incoming max-freq requests (from the perf HAL,
+			 * MiuiBooster, or any other writer of this node) to the
+			 * currently configured policy->max for this CPU, rather
+			 * than storing the raw requested value unclamped.
+			 *
+			 * Without this, a perf-lock request (observed live:
+			 * MiuiBoosterService requestCpuHighFreq with an all-set
+			 * bitmask value on every foreground app switch) can set
+			 * i_cpu_stats->max above the user/kernel-manager
+			 * configured ceiling, which cpufreq_update_policy() below
+			 * then applies via this driver's CPUFREQ_ADJUST notifier,
+			 * silently overriding scaling_max_freq for a bounded
+			 * window until the next policy update restores it.
+			 *
+			 * Reading policy->max here (rather than a hardcoded
+			 * value) keeps this tracking whatever ceiling is
+			 * currently configured, so it adapts automatically across
+			 * kernel-manager profile switches (e.g. stable vs.
+			 * overclock) without requiring a rebuild.
+			 */
+			if (!cpufreq_get_policy(&cur_policy, cpu) &&
+			    val > cur_policy.max)
+				val = cur_policy.max;
 
 			i_cpu_stats->max = val;
 			cpumask_set_cpu(cpu, limit_mask);
