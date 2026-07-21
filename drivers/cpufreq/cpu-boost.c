@@ -229,6 +229,29 @@ static int boost_adjust_notify(struct notifier_block *nb, unsigned long val,
 		if (!ib_min)
 			break;
 
+		/*
+		 * Clamp ib_min to the currently configured policy->max
+		 * before applying it as a floor. sync_info->input_boost_min
+		 * can come from powerkey_input_boost_freq (screen wake via
+		 * power key) or input_boost_freq (general touch input),
+		 * both of which are configured per-CPU defaults that may
+		 * exceed the user/kernel-manager configured ceiling — on
+		 * this device, cpu7's powerkey_input_boost_freq ships at
+		 * the raw hardware max (3187200), not the configured max
+		 * (2553600).
+		 *
+		 * Without this clamp, cpufreq_verify_within_limits() below
+		 * raises policy->min to ib_min directly; when ib_min
+		 * exceeds policy->max, that same call's internal bounds
+		 * checking collapses policy->max up to meet it (or pins
+		 * min at max), producing a locked min==max window on every
+		 * screen-wake/power-key event — functionally identical to
+		 * a performance-governor pin despite the configured
+		 * ceiling never having been raised anywhere else.
+		 */
+		if (ib_min > policy->max)
+			ib_min = policy->max;
+
 		pr_debug("CPU%u policy min before boost: %u kHz\n",
 			 cpu, policy->min);
 		pr_debug("CPU%u boost min: %u kHz\n", cpu, ib_min);
