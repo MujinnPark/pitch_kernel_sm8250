@@ -767,9 +767,19 @@ static bool adjustment_possible(const struct cluster_data *cluster,
 
 static bool need_all_cpus(const struct cluster_data *cluster)
 {
-
+#ifdef CONFIG_SCHED_WALT
 	return (is_min_capacity_cpu(cluster->first_cpu) &&
 		sched_ravg_window < DEFAULT_SCHED_RAVG_WINDOW);
+#else
+	/*
+	 * WALT's ravg window has no PELT equivalent, so this heuristic
+	 * ("keep all min-capacity CPUs online while the window is
+	 * shorter than default") doesn't translate. Default to false:
+	 * let the normal nr_need-based logic in eval_need() govern
+	 * min-capacity cluster sizing instead of forcing it here.
+	 */
+	return false;
+#endif
 }
 
 static bool eval_need(struct cluster_data *cluster)
