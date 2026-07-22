@@ -109,7 +109,7 @@ SCHED_FEAT(EAS_PREFER_IDLE, true)
 /*
  * Request max frequency from schedutil whenever a RT task is running.
  */
-SCHED_FEAT(SUGOV_RT_MAX_FREQ, false)
+SCHED_FEAT(SUGOV_RT_MAX_FREQ, true)
 
 /*
  * Apply schedtune boost hold to tasks of all sched classes.

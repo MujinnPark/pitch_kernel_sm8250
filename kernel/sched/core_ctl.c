@@ -916,6 +916,138 @@ void core_ctl_notifier_unregister(struct notifier_block *n)
 	atomic_notifier_chain_unregister(&core_ctl_notifier, n);
 }
 
+/*
+ * PELT-based replacement for WALT's walt_fill_ta_data(). Feeds the same
+ * core_ctl_notif_data consumed by drivers/soc/qcom/msm_performance.c,
+ * which only republishes these numbers as read-only sysfs telemetry
+ * (aggr_top_load, top_load_cluster, etc) -- nothing in-kernel makes
+ * scheduling or thermal decisions from this struct, so an approximation
+ * here affects userspace-visible telemetry accuracy only, not scheduler
+ * or thermal correctness.
+ *
+ * coloc_load_pct: WALT derived this from p->ravg.coloc_demand for tasks
+ * in the DEFAULT_CGROUP_COLOC_ID related_thread_group (WALT's notion of
+ * "latency sensitive, keep together" tasks -- in practice populated from
+ * top-app + foreground). There is no PELT equivalent to
+ * related_thread_group, so this reconstructs the same intent from the
+ * cpu.uclamp cgroups those tasks actually live in: sum cfs_rq->avg.util_avg
+ * for the top-app and foreground task_groups, scaled to the lowest-capacity
+ * CPU the same way WALT's version scaled to min_cap_cpu.
+ *
+ * ta_util_pct[]/cur_cap_pct[]: per-cluster aggregate CFS utilization and
+ * current frequency-capacity percentage, using core_ctl's own
+ * cluster_state[] (populated by core_ctl_init_clusters(), capacity-grouped,
+ * WALT-independent) instead of WALT's aggr_grp_load/sched_cluster list.
+ */
+static struct task_group *coloc_tg_cache[2]; /* top-app, foreground */
+static bool coloc_tg_resolved;
+
+static void resolve_coloc_task_groups(void)
+{
+	static const char * const coloc_names[2] = { "top-app", "foreground" };
+	struct task_group *tg;
+	int found = 0;
+
+	rcu_read_lock();
+	list_for_each_entry_rcu(tg, &task_groups, list) {
+		const char *name;
+		int i;
+
+		if (!tg->css.cgroup || !tg->css.cgroup->kn)
+			continue;
+		name = tg->css.cgroup->kn->name;
+		if (!name)
+			continue;
+
+		for (i = 0; i < 2; i++) {
+			if (!coloc_tg_cache[i] && !strcmp(name, coloc_names[i])) {
+				coloc_tg_cache[i] = tg;
+				found++;
+			}
+		}
+		if (found == 2)
+			break;
+	}
+	rcu_read_unlock();
+
+	/*
+	 * Cgroups are created once at boot by init and not recreated, so
+	 * once both are found the cache is permanently valid. If either
+	 * is still missing (e.g. called before init has set up cpuctl),
+	 * leave coloc_tg_resolved false so the next notifier tick retries.
+	 */
+	if (coloc_tg_cache[0] && coloc_tg_cache[1])
+		coloc_tg_resolved = true;
+}
+
+static unsigned int coloc_group_util_sum(struct task_group *tg)
+{
+	unsigned int sum = 0;
+	int cpu;
+
+	if (!tg || !tg->cfs_rq)
+		return 0;
+
+	for_each_possible_cpu(cpu) {
+		struct cfs_rq *cfs_rq = tg->cfs_rq[cpu];
+
+		if (cfs_rq)
+			sum += READ_ONCE(cfs_rq->avg.util_avg);
+	}
+
+	return sum;
+}
+
+static void core_ctl_fill_ta_data(struct core_ctl_notif_data *data)
+{
+	struct cluster_data *cluster;
+	unsigned int total_util = 0, min_cap_scale = 1024;
+	int index = 0, i;
+
+	if (!coloc_tg_resolved)
+		resolve_coloc_task_groups();
+
+	if (coloc_tg_resolved) {
+		total_util = coloc_group_util_sum(coloc_tg_cache[0]) +
+			     coloc_group_util_sum(coloc_tg_cache[1]);
+
+		/* Scale to the lowest-capacity cluster, matching WALT's
+		 * min_cap_cpu normalization in the original implementation.
+		 */
+		for_each_cluster(cluster, index) {
+			unsigned long cap =
+				arch_scale_cpu_capacity(NULL, cluster->first_cpu);
+			if (cap < min_cap_scale)
+				min_cap_scale = cap;
+		}
+
+		data->coloc_load_pct = min_t(unsigned int,
+				div_u64((u64)total_util * 100, min_cap_scale),
+				100);
+	}
+
+	i = 0;
+	index = 0;
+	for_each_cluster(cluster, index) {
+		unsigned int cluster_util = 0;
+		unsigned long scale;
+		int cpu;
+
+		if (i == MAX_CLUSTERS)
+			break;
+
+		for_each_cpu(cpu, &cluster->cpu_mask)
+			cluster_util += READ_ONCE(cpu_rq(cpu)->cfs.avg.util_avg);
+
+		scale = arch_scale_cpu_capacity(NULL, cluster->first_cpu);
+		data->ta_util_pct[i] = div_u64((u64)cluster_util * 100, scale);
+
+		scale = arch_scale_freq_capacity(cluster->first_cpu);
+		data->cur_cap_pct[i] = (scale * 100) / 1024;
+		i++;
+	}
+}
+
 static void core_ctl_call_notifier(void)
 {
 	struct core_ctl_notif_data ndata = {0};
@@ -933,7 +1065,7 @@ static void core_ctl_call_notifier(void)
 		return;
 
 	ndata.nr_big = last_nr_big;
-	walt_fill_ta_data(&ndata);
+	core_ctl_fill_ta_data(&ndata);
 	trace_core_ctl_notif_data(ndata.nr_big, ndata.coloc_load_pct,
 			ndata.ta_util_pct, ndata.cur_cap_pct);
 
@@ -1333,11 +1465,55 @@ static int cluster_init(const struct cpumask *mask)
 	return kobject_add(&cluster->kobj, &dev->kobj, "core_ctl");
 }
 
+/*
+ * Discover CPU clusters from relative compute capacity rather than WALT's
+ * sched_cluster linked list. Two CPUs are considered part of the same
+ * cluster iff arch_scale_cpu_capacity() reports the same value for both,
+ * which is the same capacity-grouping primitive EAS/fair.c already use
+ * for performance-domain construction -- this keeps core_ctl's notion of
+ * "cluster" consistent with EAS's rather than introducing a second,
+ * divergent grouping mechanism.
+ *
+ * This runs once at late_initcall, well before hotplug, so a plain
+ * for_each_possible_cpu() scan is fine -- no capacity values change
+ * during this pass.
+ */
+static int __init core_ctl_init_clusters(void)
+{
+	cpumask_t assigned = CPU_MASK_NONE;
+	int cpu, ret;
+
+	for_each_possible_cpu(cpu) {
+		cpumask_t group;
+		unsigned long cap;
+		int other;
+
+		if (cpumask_test_cpu(cpu, &assigned))
+			continue;
+
+		cap = arch_scale_cpu_capacity(NULL, cpu);
+		cpumask_clear(&group);
+		cpumask_set_cpu(cpu, &group);
+
+		for_each_possible_cpu(other) {
+			if (other == cpu || cpumask_test_cpu(other, &assigned))
+				continue;
+			if (arch_scale_cpu_capacity(NULL, other) == cap)
+				cpumask_set_cpu(other, &group);
+		}
+
+		cpumask_or(&assigned, &assigned, &group);
+
+		ret = cluster_init(&group);
+		if (ret)
+			pr_warn("unable to create core ctl group: %d\n", ret);
+	}
+
+	return 0;
+}
+
 static int __init core_ctl_init(void)
 {
-	struct sched_cluster *cluster;
-	int ret;
-
 	cpuhp_setup_state_nocalls(CPUHP_AP_ONLINE_DYN,
 			"core_ctl/isolation:online",
 			core_ctl_isolation_online_cpu, NULL);
@@ -1346,11 +1522,7 @@ static int __init core_ctl_init(void)
 			"core_ctl/isolation:dead",
 			NULL, core_ctl_isolation_dead_cpu);
 
-	for_each_sched_cluster(cluster) {
-		ret = cluster_init(&cluster->cpus);
-		if (ret)
-			pr_warn("unable to create core ctl group: %d\n", ret);
-	}
+	core_ctl_init_clusters();
 
 	initialized = true;
 	return 0;

@@ -1124,7 +1124,16 @@ endif # CGROUPS
 
 config SCHED_CORE_CTL
 	bool "QTI Core Control"
-	depends on SMP && SCHED_WALT
+	depends on SMP
+	# Historically depended on SCHED_WALT: core_ctl's cluster discovery
+	# used WALT's sched_cluster list, and its notifier telemetry
+	# (msm_performance.c aggr_top_load/etc, sysfs-only, not consumed by
+	# any in-kernel scheduling or thermal decision) used
+	# walt_fill_ta_data(). Both were replaced with WALT-independent
+	# equivalents in kernel/sched/core_ctl.c (capacity-grouped cluster
+	# discovery via arch_scale_cpu_capacity(), and a PELT util_avg based
+	# notifier data source) so this now only requires SMP, matching
+	# every other CPU-hotplug-adjacent Kconfig option in this file.
 	help
 	  This options enables the core control functionality in
 	  the scheduler. Core control automatically offline and

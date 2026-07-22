@@ -7910,9 +7910,39 @@ struct uclamp_default_entry {
 	unsigned int max;
 };
 
+/*
+ * Tuned for the WALT->PELT migration (see kernel/sched/core_ctl.c and
+ * kernel/sched/topology.c for the rest of that migration).
+ *
+ * This device's little cluster tops out at capacity ~553/1024
+ * (capacity-dmips-mhz 1024 vs 1894 in arch/arm64/boot/dts/vendor/qcom/
+ * kona.dtsi, normalized). Values below reason from that ceiling rather
+ * than being arbitrary:
+ *
+ * top-app min raised 384 -> 576 (~0.5625): previously sat below the
+ * little-core ceiling, so a top-app task could run fully pinned to a
+ * little core at max frequency with no floor pushing it to a big core.
+ * 576 sits just above the little-core ceiling -- enough to avoid a
+ * foreground task getting stuck maxed-out on a little core (a real
+ * latency and, despite intuition, sometimes battery cost), without
+ * unconditionally forcing every top-app task onto a big core regardless
+ * of actual load. This is a deliberate balance point, not a maximum;
+ * chosen over both a battery-leaning (~450-500) and performance-leaning
+ * (~650-700) alternative.
+ *
+ * foreground max raised 768 -> 1024: 768 capped legitimately demanding
+ * foreground work (e.g. a foreground service doing a burst of real work)
+ * below full big-core capacity for no clear reason -- nothing about
+ * "foreground but not top-app" implies it should be perf-limited below
+ * background. min unchanged; this only removes an unnecessary ceiling.
+ *
+ * background, system: unchanged. Already sound -- background correctly
+ * can't exceed little-core-equivalent capacity (thermal/battery
+ * protection), system already has full ceiling with a small floor.
+ */
 static const struct uclamp_default_entry uclamp_forced_defaults[] = {
-	{ "top-app",	384,	1024 },
-	{ "foreground",	128,	768  },
+	{ "top-app",	576,	1024 },
+	{ "foreground",	128,	1024 },
 	{ "background",	0,	512  },
 	{ "system",	64,	1024 },
 };
