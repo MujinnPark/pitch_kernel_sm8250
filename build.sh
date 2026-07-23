@@ -478,6 +478,10 @@ grep -n "KSU_SUSFS" out/.config | head -5
 echo "--- PitchKernel diagnostic: verbatim include/linux/pkg_stat.h tail ---"
 tail -20 include/linux/pkg_stat.h
 echo "--- end pkg_stat.h diagnostic ---"
+echo "--- PitchKernel diagnostic: CONFIG_XIAOMI_MIUI / CONFIG_PERF_HUMANTASK state ---"
+grep -E "^CONFIG_XIAOMI_MIUI|^# CONFIG_XIAOMI_MIUI" out/.config || echo "CONFIG_XIAOMI_MIUI not present in out/.config at all"
+grep -E "^CONFIG_PERF_HUMANTASK|^# CONFIG_PERF_HUMANTASK" out/.config || echo "CONFIG_PERF_HUMANTASK not present in out/.config at all"
+echo "--- end XIAOMI_MIUI/PERF_HUMANTASK diagnostic ---"
 
 make $MAKE_ARGS -j"$JOBS"
 
