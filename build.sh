@@ -288,6 +288,9 @@ scripts/config --file out/.config \
 # "Error in reading or end of file." olddefconfig silently accepts
 # every current answer and defaults anything unresolved.
 make $MAKE_ARGS olddefconfig
+echo "--- PitchKernel diagnostic: CONFIG_SCHED_WALT state after olddefconfig ---"
+grep -E "^CONFIG_SCHED_WALT|^# CONFIG_SCHED_WALT" out/.config || echo "PitchKernel diagnostic: CONFIG_SCHED_WALT not present in out/.config at all"
+grep -n "KSU_SUSFS" out/.config | head -5
 
 make $MAKE_ARGS -j"$JOBS"
 
@@ -466,6 +469,9 @@ scripts/config --file out/.config \
 
 # See AOSP block above for why olddefconfig is required here.
 make $MAKE_ARGS olddefconfig
+echo "--- PitchKernel diagnostic: CONFIG_SCHED_WALT state after olddefconfig ---"
+grep -E "^CONFIG_SCHED_WALT|^# CONFIG_SCHED_WALT" out/.config || echo "PitchKernel diagnostic: CONFIG_SCHED_WALT not present in out/.config at all"
+grep -n "KSU_SUSFS" out/.config | head -5
 
 make $MAKE_ARGS -j"$JOBS"
 
