@@ -281,6 +281,14 @@ scripts/config --file out/.config \
   -d LTO_CLANG \
   -e LTO_NONE
 
+# Reconcile .config non-interactively after manual scripts/config edits.
+# Without this, any choice block Kconfig considers ambiguous (e.g. the
+# TCP_CONG default) makes syncconfig prompt interactively during the
+# real build step below, which has no stdin in CI and crashes with
+# "Error in reading or end of file." olddefconfig silently accepts
+# every current answer and defaults anything unresolved.
+make $MAKE_ARGS olddefconfig
+
 make $MAKE_ARGS -j"$JOBS"
 
 if [ -f "out/arch/arm64/boot/Image" ]; then
@@ -455,6 +463,9 @@ scripts/config --file out/.config \
   -e RTMM \
   -d REKERNEL \
   -d REKERNEL_NETWORK
+
+# See AOSP block above for why olddefconfig is required here.
+make $MAKE_ARGS olddefconfig
 
 make $MAKE_ARGS -j"$JOBS"
 
