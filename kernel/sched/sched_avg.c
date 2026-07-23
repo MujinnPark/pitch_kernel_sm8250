@@ -206,8 +206,19 @@ unsigned int sched_get_cpu_util(int cpu)
 	util = rq->cfs.avg.util_avg;
 	capacity = capacity_orig_of(cpu);
 
+#ifdef CONFIG_SCHED_WALT
+	/*
+	 * WALT's windowed-sum accounting is more precise than the PELT
+	 * util_avg computed just above, so prefer it when available --
+	 * this mirrors the original (pre-migration) unconditional behavior.
+	 * rq->prev_runnable_sum / rq->grp_time only exist under
+	 * CONFIG_SCHED_WALT (see kernel/sched/sched.h), so this override
+	 * has to stay gated: under PELT the util_avg value above is the
+	 * real, correct result, not a fallback.
+	 */
 	util = rq->prev_runnable_sum + rq->grp_time.prev_runnable_sum;
 	util = div64_u64(util, sched_ravg_window >> SCHED_CAPACITY_SHIFT);
+#endif
 
 	raw_spin_unlock_irqrestore(&rq->lock, flags);
 

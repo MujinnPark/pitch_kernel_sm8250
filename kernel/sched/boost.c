@@ -52,10 +52,39 @@ static void set_boost_policy(int type)
 		return;
 	}
 
+#ifdef CONFIG_SCHED_WALT
 	if (min_possible_efficiency != max_possible_efficiency) {
 		boost_policy = SCHED_BOOST_ON_BIG;
 		return;
 	}
+#else
+	/*
+	 * WALT populates min/max_possible_efficiency from its own cluster
+	 * scan; under PELT, determine asymmetric-capacity status the same
+	 * way core_ctl_init_clusters() and topology.c's sd_asym_cpucapacity
+	 * check already do -- by comparing arch_scale_cpu_capacity() across
+	 * possible CPUs, rather than leaving this unguarded or inventing a
+	 * different heuristic.
+	 */
+	{
+		unsigned long min_cap = ULONG_MAX, max_cap = 0;
+		int cpu;
+
+		for_each_possible_cpu(cpu) {
+			unsigned long cap = arch_scale_cpu_capacity(NULL, cpu);
+
+			if (cap < min_cap)
+				min_cap = cap;
+			if (cap > max_cap)
+				max_cap = cap;
+		}
+
+		if (min_cap != max_cap) {
+			boost_policy = SCHED_BOOST_ON_BIG;
+			return;
+		}
+	}
+#endif
 
 	boost_policy = SCHED_BOOST_ON_ALL;
 }

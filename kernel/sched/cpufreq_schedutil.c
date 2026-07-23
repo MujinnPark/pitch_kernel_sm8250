@@ -206,6 +206,7 @@ static void sugov_track_cycles(struct sugov_policy *sg_policy,
 				unsigned int prev_freq,
 				u64 upto)
 {
+#ifdef CONFIG_SCHED_WALT
 	u64 delta_ns, cycles;
 	u64 next_ws = sg_policy->last_ws + sched_ravg_window;
 
@@ -220,11 +221,13 @@ static void sugov_track_cycles(struct sugov_policy *sg_policy,
 	cycles = delta_ns;
 	sg_policy->curr_cycles += cycles;
 	sg_policy->last_cyc_update_time = upto;
+#endif
 }
 
 static void sugov_calc_avg_cap(struct sugov_policy *sg_policy, u64 curr_ws,
 				unsigned int prev_freq)
 {
+#ifdef CONFIG_SCHED_WALT
 	u64 last_ws = sg_policy->last_ws;
 	unsigned int avg_freq;
 
@@ -248,6 +251,7 @@ static void sugov_calc_avg_cap(struct sugov_policy *sg_policy, u64 curr_ws,
 	sg_policy->avg_cap = freq_to_util(sg_policy, avg_freq);
 	sg_policy->curr_cycles = 0;
 	sg_policy->last_ws = curr_ws;
+#endif
 }
 
 static void sugov_fast_switch(struct sugov_policy *sg_policy, u64 time,
@@ -1307,7 +1311,25 @@ static int sugov_init(struct cpufreq_policy *policy)
 	util = target_util(sg_policy, sg_policy->tunables->rtg_boost_freq);
 	sg_policy->rtg_boost_util = util;
 
+#ifdef CONFIG_SCHED_WALT
 	stale_ns = sched_ravg_window + (sched_ravg_window >> 3);
+#else
+	/*
+	 * stale_ns is a general (non-WALT-specific) staleness threshold
+	 * consumed unconditionally further down in this file, so this
+	 * needs a real value under PELT, not just a guard-to-zero.
+	 *
+	 * WALT computed ~1.125x its tracking window (sched_ravg_window,
+	 * 20ms default -> ~22.5ms). PELT has no equivalent adjustable
+	 * window, so this uses PELT's own characteristic timescale
+	 * instead of approximating WALT's specific formula: 32ms is
+	 * LOAD_AVG_PERIOD (kernel/sched/sched-pelt.h), PELT's load-average
+	 * half-life. Hardcoded here rather than pulling in "pelt.h" (not
+	 * transitively included via "sched.h" in this file) to keep this
+	 * a minimal, low-risk fix.
+	 */
+	stale_ns = 32 * NSEC_PER_MSEC;
+#endif
 
 	sugov_tunables_restore(policy);
 

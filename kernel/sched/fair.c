@@ -622,8 +622,11 @@ static inline bool jump_queue(struct task_struct *tsk,
 	bool jump = false;
 
 	if (tsk && tsk->human_task && root) {
-		if (tsk->human_task > MAX_LEVER ||
-			sched_mi_boost() == MI_BOOST) {
+		if (tsk->human_task > MAX_LEVER
+#ifdef CONFIG_XIAOMI_MIUI
+			|| sched_mi_boost() == MI_BOOST
+#endif
+			) {
 			jump = true;
 			goto out;
 		}
@@ -637,7 +640,12 @@ static inline bool jump_queue(struct task_struct *tsk,
 out:
 	if (jump)
 		trace_sched_debug_einfo(tsk, "jumper", "boostx",
-			tsk->human_task, sched_boost(), sched_mi_boost(),
+			tsk->human_task, sched_boost(),
+#ifdef CONFIG_XIAOMI_MIUI
+			sched_mi_boost(),
+#else
+			0,
+#endif
 			sched_boost_top_app(), 0);
 
 	return jump;
