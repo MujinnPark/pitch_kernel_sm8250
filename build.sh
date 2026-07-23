@@ -262,7 +262,14 @@ scripts/config --file out/.config \
   -e TCP_CONG_BIC \
   -e DEFAULT_BBR \
   -d DEFAULT_CUBIC \
-  --set-str DEFAULT_TCP_CONG bbr \
+  # DEFAULT_TCP_CONG intentionally not set directly: it's a Kconfig
+  # 'string' derived from the DEFAULT_BBR/DEFAULT_CUBIC/etc. choice
+  # block (see net/ipv4/Kconfig), not an independent setting. Writing
+  # it directly alongside -e DEFAULT_BBR corrupted the choice's
+  # invariant and made syncconfig fall into an interactive re-prompt
+  # that failed on EOF in CI, leaving downstream symbols (including
+  # CONFIG_SCHED_WALT's resolution path) in an undefined state.
+  # -e DEFAULT_BBR alone makes Kconfig derive the correct string.
   -e NET_SCH_FQ \
   -e NET_SCH_FQ_CODEL
 # --- end TCP congestion control ---
@@ -409,7 +416,14 @@ scripts/config --file out/.config \
   -e TCP_CONG_BIC \
   -e DEFAULT_BBR \
   -d DEFAULT_CUBIC \
-  --set-str DEFAULT_TCP_CONG bbr \
+  # DEFAULT_TCP_CONG intentionally not set directly: it's a Kconfig
+  # 'string' derived from the DEFAULT_BBR/DEFAULT_CUBIC/etc. choice
+  # block (see net/ipv4/Kconfig), not an independent setting. Writing
+  # it directly alongside -e DEFAULT_BBR corrupted the choice's
+  # invariant and made syncconfig fall into an interactive re-prompt
+  # that failed on EOF in CI, leaving downstream symbols (including
+  # CONFIG_SCHED_WALT's resolution path) in an undefined state.
+  # -e DEFAULT_BBR alone makes Kconfig derive the correct string.
   -e NET_SCH_FQ \
   -e NET_SCH_FQ_CODEL
 # --- end TCP congestion control ---
