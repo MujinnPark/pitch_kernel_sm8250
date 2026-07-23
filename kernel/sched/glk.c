@@ -194,6 +194,21 @@ static void game_load_history_items_reset(int history_items)
 	game_load->frame_period = 0;
 }
 
+/*
+ * glk_irq_work() walks WALT's per-cluster runqueue list (struct
+ * sched_cluster's real fields -- load_lock, cpus -- only exist under
+ * CONFIG_SCHED_WALT; see kernel/sched/sched.h) and calls WALT-only
+ * update_task_ravg(). Unlike this file's other functions (glk_enable,
+ * glk_freq_limit, game_load_update, etc.), which have real callers in
+ * non-WALT files (pkg_interface.c, cpufreq_schedutil.c, migt.c) and
+ * must keep building under PELT, this one has no meaningful PELT
+ * equivalent and no callers outside this file (it's only ever invoked
+ * via the irq_work callback registered in game_load_init() below).
+ * Guarding just this function -- not the whole file via the Makefile,
+ * which would have broken those other real callers -- keeps everything
+ * else in glk.c building normally under both configs.
+ */
+#ifdef CONFIG_SCHED_WALT
 void glk_irq_work(struct irq_work *irq_work)
 {
 	struct sched_cluster *cluster;
@@ -248,6 +263,7 @@ void glk_irq_work(struct irq_work *irq_work)
 	for_each_cpu (cpu, cpu_possible_mask)
 		raw_spin_unlock(&cpu_rq(cpu)->lock);
 }
+#endif /* CONFIG_SCHED_WALT */
 
 void glk_force_maxfreq_break(bool val)
 {
@@ -802,7 +818,15 @@ int game_load_init(void)
 	cluster_number = cluster;
 
 	WARN_ON(game_load_header);
+	/*
+	 * glk_irq_work only exists under CONFIG_SCHED_WALT (see its
+	 * definition above). Under PELT, glk_cpufreq_irq_work is simply
+	 * never registered with a callback; irq_work_queue() calls on it
+	 * elsewhere in this file remain safe no-ops, per the irq_work API.
+	 */
+#ifdef CONFIG_SCHED_WALT
 	init_irq_work(&glk_cpufreq_irq_work, glk_irq_work);
+#endif
 	game_load_header = register_sysctl_table(game_ctl_root);
 	game_load_has_init = 1;
 	pr_err("game load init success\n");
