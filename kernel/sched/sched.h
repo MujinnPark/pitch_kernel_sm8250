@@ -2853,9 +2853,6 @@ extern void add_new_task_to_grp(struct task_struct *new);
 #define FULL_THROTTLE_BOOST 1
 #define CONSERVATIVE_BOOST 2
 #define RESTRAINED_BOOST 3
-#ifdef CONFIG_XIAOMI_MIUI
-#define MI_BOOST         4
-#endif
 #define FULL_THROTTLE_BOOST_DISABLE -1
 #define CONSERVATIVE_BOOST_DISABLE -2
 #define RESTRAINED_BOOST_DISABLE -3
@@ -3176,6 +3173,11 @@ static inline bool sched_boost_top_app(void)
 {
 	return false;
 }
+
+static inline int sched_mi_boost(void)
+{
+	return 0;	/* NO_BOOST; not visible in this branch, value is the same */
+}
 #endif
 
 static inline enum sched_boost_policy task_boost_policy(struct task_struct *p)
@@ -3299,6 +3301,21 @@ static inline bool walt_want_remote_wakeup(void)
 	return false;
 }
 #endif	/* CONFIG_SCHED_WALT */
+
+/*
+ * MI_BOOST is a plain integer constant with no WALT dependency, but
+ * it was nested inside the #ifdef CONFIG_SCHED_WALT block above
+ * (only its own #ifdef CONFIG_XIAOMI_MIUI was visible locally).
+ * Under PELT (CONFIG_SCHED_WALT off), MI_BOOST disappeared entirely,
+ * breaking kernel/sched/fair.c's CONFIG_PERF_HUMANTASK code, which
+ * references it unconditionally: "use of undeclared identifier
+ * 'MI_BOOST'". Placed here, unconditional on CONFIG_SCHED_WALT, so
+ * it's visible in both configs; still gated on CONFIG_XIAOMI_MIUI
+ * since it's meaningless without that feature.
+ */
+#ifdef CONFIG_XIAOMI_MIUI
+#define MI_BOOST         4
+#endif
 
 struct sched_avg_stats {
 	int nr;
