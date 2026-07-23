@@ -583,6 +583,20 @@ static inline u64 get_rtgb_active_time(void)
 	return 0;
 }
 
+/*
+ * "RTGB" (related-thread-group-boost) is a WALT-only co-location concept
+ * with no PELT equivalent -- unlike get_rtgb_active_time() just above,
+ * this one had no fallback stub at all, which is a genuine gap: sched_avg.c
+ * references it unconditionally in sched_update_hyst_times(). Since there's
+ * nothing to approximate here (no coloc-boost-active state exists under
+ * PELT), false is the correct, honest fallback rather than a fabricated
+ * substitute.
+ */
+static inline bool is_rtgb_active(void)
+{
+	return false;
+}
+
 static inline unsigned int walt_nr_rtg_high_prio(int cpu)
 {
 	return 0;
