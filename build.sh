@@ -291,6 +291,9 @@ make $MAKE_ARGS olddefconfig
 echo "--- PitchKernel diagnostic: CONFIG_SCHED_WALT state after olddefconfig ---"
 grep -E "^CONFIG_SCHED_WALT|^# CONFIG_SCHED_WALT" out/.config || echo "PitchKernel diagnostic: CONFIG_SCHED_WALT not present in out/.config at all"
 grep -n "KSU_SUSFS" out/.config | head -5
+echo "--- PitchKernel diagnostic: verbatim include/linux/pkg_stat.h tail ---"
+tail -20 include/linux/pkg_stat.h
+echo "--- end pkg_stat.h diagnostic ---"
 
 make $MAKE_ARGS -j"$JOBS"
 
@@ -472,6 +475,9 @@ make $MAKE_ARGS olddefconfig
 echo "--- PitchKernel diagnostic: CONFIG_SCHED_WALT state after olddefconfig ---"
 grep -E "^CONFIG_SCHED_WALT|^# CONFIG_SCHED_WALT" out/.config || echo "PitchKernel diagnostic: CONFIG_SCHED_WALT not present in out/.config at all"
 grep -n "KSU_SUSFS" out/.config | head -5
+echo "--- PitchKernel diagnostic: verbatim include/linux/pkg_stat.h tail ---"
+tail -20 include/linux/pkg_stat.h
+echo "--- end pkg_stat.h diagnostic ---"
 
 make $MAKE_ARGS -j"$JOBS"
 
