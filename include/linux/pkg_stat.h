@@ -156,6 +156,17 @@ static inline void glk_minfreq_break(bool val) {}
 static inline void glk_force_maxfreq_break(bool val) {}
 static inline bool get_minor_window_cpumask(struct task_struct *p, cpumask_t *mask) {return 0; }
 #endif
+/*
+ * sched.h already declares sched_ktime_clock() for both configs:
+ * a real extern under CONFIG_SCHED_WALT (defined in walt.c), and a
+ * static inline fallback otherwise. This unconditional redeclaration
+ * was harmless (if redundant) under WALT, but conflicted outright
+ * under PELT: "static declaration of 'sched_ktime_clock' follows
+ * non-static declaration". Guarding it to only apply under
+ * CONFIG_SCHED_WALT lets sched.h's own PELT fallback stand alone.
+ */
+#ifdef CONFIG_SCHED_WALT
 u64 sched_ktime_clock(void);
+#endif
 #endif /*_LINUX_PKG_STAT_H*/
 
