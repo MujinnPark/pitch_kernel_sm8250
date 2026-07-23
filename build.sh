@@ -253,6 +253,14 @@ scripts/config --file out/.config \
   -e BBG
 
 # --- TCP congestion control: build in BBR + switchable alternatives ---
+# DEFAULT_TCP_CONG intentionally not set directly below: it's a Kconfig
+# 'string' derived from the DEFAULT_BBR/DEFAULT_CUBIC/etc. choice block
+# (see net/ipv4/Kconfig), not an independent setting. A previous attempt
+# to explain this placed the comment INSIDE the backslash-continued
+# scripts/config call below, which silently truncated the command at
+# the first uncontinued comment line (no trailing backslash), causing
+# 'build.sh: line NNN: -e: command not found' in CI. Comment moved
+# above the command entirely so it can't break the continuation again.
 scripts/config --file out/.config \
   -e TCP_CONG_ADVANCED \
   -e TCP_CONG_BBR \
@@ -262,14 +270,6 @@ scripts/config --file out/.config \
   -e TCP_CONG_BIC \
   -e DEFAULT_BBR \
   -d DEFAULT_CUBIC \
-  # DEFAULT_TCP_CONG intentionally not set directly: it's a Kconfig
-  # 'string' derived from the DEFAULT_BBR/DEFAULT_CUBIC/etc. choice
-  # block (see net/ipv4/Kconfig), not an independent setting. Writing
-  # it directly alongside -e DEFAULT_BBR corrupted the choice's
-  # invariant and made syncconfig fall into an interactive re-prompt
-  # that failed on EOF in CI, leaving downstream symbols (including
-  # CONFIG_SCHED_WALT's resolution path) in an undefined state.
-  # -e DEFAULT_BBR alone makes Kconfig derive the correct string.
   -e NET_SCH_FQ \
   -e NET_SCH_FQ_CODEL
 # --- end TCP congestion control ---
@@ -407,6 +407,14 @@ scripts/config --file out/.config \
   -e BBG
 
 # --- TCP congestion control: build in BBR + switchable alternatives ---
+# DEFAULT_TCP_CONG intentionally not set directly below: it's a Kconfig
+# 'string' derived from the DEFAULT_BBR/DEFAULT_CUBIC/etc. choice block
+# (see net/ipv4/Kconfig), not an independent setting. A previous attempt
+# to explain this placed the comment INSIDE the backslash-continued
+# scripts/config call below, which silently truncated the command at
+# the first uncontinued comment line (no trailing backslash), causing
+# 'build.sh: line NNN: -e: command not found' in CI. Comment moved
+# above the command entirely so it can't break the continuation again.
 scripts/config --file out/.config \
   -e TCP_CONG_ADVANCED \
   -e TCP_CONG_BBR \
@@ -416,14 +424,6 @@ scripts/config --file out/.config \
   -e TCP_CONG_BIC \
   -e DEFAULT_BBR \
   -d DEFAULT_CUBIC \
-  # DEFAULT_TCP_CONG intentionally not set directly: it's a Kconfig
-  # 'string' derived from the DEFAULT_BBR/DEFAULT_CUBIC/etc. choice
-  # block (see net/ipv4/Kconfig), not an independent setting. Writing
-  # it directly alongside -e DEFAULT_BBR corrupted the choice's
-  # invariant and made syncconfig fall into an interactive re-prompt
-  # that failed on EOF in CI, leaving downstream symbols (including
-  # CONFIG_SCHED_WALT's resolution path) in an undefined state.
-  # -e DEFAULT_BBR alone makes Kconfig derive the correct string.
   -e NET_SCH_FQ \
   -e NET_SCH_FQ_CODEL
 # --- end TCP congestion control ---
