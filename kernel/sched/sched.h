@@ -3306,7 +3306,29 @@ struct sched_avg_stats {
 	int nr_max;
 	int nr_scaled;
 };
+#ifdef CONFIG_SCHED_WALT
 extern void sched_get_nr_running_avg(struct sched_avg_stats *stats);
+#else
+/*
+ * sched_get_nr_running_avg()'s only implementation lives in
+ * sched_avg.c, which the Makefile only builds under
+ * obj-$(CONFIG_SCHED_WALT). Under PELT there's no windowed
+ * runqueue-average source to report, so zero the stats array;
+ * every core_ctl.c consumer of nr_stats[] already treats zero
+ * as "no extra load", so this degrades safely rather than
+ * fabricating data or leaving nr_stats uninitialized.
+ *
+ * This extern was previously unguarded, promising a definition
+ * that only exists when CONFIG_SCHED_WALT=y. With it disabled,
+ * core_ctl.c's unconditional call to this function left an
+ * undefined symbol at link time: 'ld.lld: error: undefined
+ * symbol: sched_get_nr_running_avg'.
+ */
+static inline void sched_get_nr_running_avg(struct sched_avg_stats *stats)
+{
+	memset(stats, 0, sizeof(struct sched_avg_stats) * NR_CPUS);
+}
+#endif
 
 #ifdef CONFIG_SMP
 static inline void sched_irq_work_queue(struct irq_work *work)
