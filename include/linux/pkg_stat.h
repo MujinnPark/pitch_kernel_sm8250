@@ -115,7 +115,32 @@ void update_render_info(struct task_struct *tsk, enum RENDER_TYPE type);
 void game_load_update(struct task_struct *tsk, u64 delta, int cpu);
 void game_load_history_update(u64 tick);
 void game_load_reset(void);
+/*
+ * get_scale_exec_time()'s only real implementation lives in walt.c,
+ * gated on CONFIG_SCHED_WALT there (its logic depends on
+ * rq->task_exec_scale, a struct rq field that itself only exists
+ * under CONFIG_SCHED_WALT -- see kernel/sched/sched.h). This
+ * declaration, unlike its neighbors here, was unconditional even
+ * though this whole block only gates on CONFIG_PACKAGE_RUNTIME_INFO,
+ * not CONFIG_SCHED_WALT -- so a CONFIG_PACKAGE_RUNTIME_INFO=y,
+ * CONFIG_SCHED_WALT=n build (this one) declared a function that was
+ * never defined anywhere: "undefined symbol: get_scale_exec_time"
+ * at link, referenced from drivers/xiaomi/migt.c.
+ *
+ * There's no frequency-scale factor to compute under PELT the way
+ * WALT does via rq->task_exec_scale, so this passes delta through
+ * unscaled -- equivalent to WALT's own default/reset scale of 1.0
+ * (see kernel/sched/walt.c's "rq->task_exec_scale = 1024" >> 10
+ * fixed-point default), not a fabricated substitute.
+ */
+#ifdef CONFIG_SCHED_WALT
 u64 get_scale_exec_time(u64 delta, int cpu);
+#else
+static inline u64 get_scale_exec_time(u64 delta, int cpu)
+{
+	return delta;
+}
+#endif
 void update_freq_limit(u64 target_ns);
 int migt_enable(void);
 int glk_enable(void);
