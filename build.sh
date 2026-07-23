@@ -226,6 +226,8 @@ sed -i 's/kernel\.string=.*/kernel.string=PitchKernel by MujinnPark/' anykernel/
 # ------------- Building for AOSP -------------
 echo "Building for AOSP......"
 make $MAKE_ARGS ${TARGET_DEVICE}_defconfig
+echo "--- PitchKernel diagnostic: CONFIG_SCHED_WALT state after defconfig ---"
+grep -E "^CONFIG_SCHED_WALT|^# CONFIG_SCHED_WALT" out/.config || echo "PitchKernel diagnostic: CONFIG_SCHED_WALT not present in out/.config at all"
 
 if [ $KSU_ENABLE -eq 1 ]; then
   scripts/config --file out/.config \
@@ -371,6 +373,8 @@ sed -i 's/\/\/39 01 00 00 01 00 03 51 03 FF/39 01 00 00 01 00 03 51 03 FF/g' ${d
 sed -i 's/\/\/39 01 00 00 11 00 03 51 03 FF/39 01 00 00 11 00 03 51 03 FF/g' ${dts_source}/dsi-panel-j2-p2-1-38-0c-0a-dsc-cmd.dtsi
 
 make $MAKE_ARGS ${TARGET_DEVICE}_defconfig
+echo "--- PitchKernel diagnostic: CONFIG_SCHED_WALT state after defconfig ---"
+grep -E "^CONFIG_SCHED_WALT|^# CONFIG_SCHED_WALT" out/.config || echo "PitchKernel diagnostic: CONFIG_SCHED_WALT not present in out/.config at all"
 
 if [ $KSU_ENABLE -eq 1 ]; then
   scripts/config --file out/.config \
