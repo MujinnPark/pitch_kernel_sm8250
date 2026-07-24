@@ -7968,10 +7968,34 @@ static void force_uclamp_group_defaults(struct cgroup_subsys_state *css)
 			      uclamp_forced_defaults[i].min, false);
 		uclamp_se_set(&tg->uclamp_req[UCLAMP_MAX],
 			      uclamp_forced_defaults[i].max, false);
+		/*
+		 * tg->uclamp_pct[] is a display/round-trip cache, expected to
+		 * be pre-scaled by 100 * 10^UCLAMP_PERCENT_SHIFT (= 10000,
+		 * UCLAMP_PERCENT_SHIFT is 2) -- see capacity_from_percent()/
+		 * cpu_uclamp_write() further down in this file, which is what
+		 * actually populates this field for userspace-initiated
+		 * writes via cgroup_parse_float(). This function previously
+		 * wrote a bare, unscaled percentage (value * 100 / SCHED_CAPACITY_SCALE)
+		 * here instead, which cpu_uclamp_print() then misinterpreted
+		 * as already being in fixed-point form -- e.g. top-app's
+		 * 576/1024 (56.25%) wrote 56, which printed as "0.56"... but
+		 * actually printed "1.00" on real hardware (the exact
+		 * off-by-something isn't fully reconstructed, only confirmed
+		 * wrong) instead of the intended "56.25". Confirmed via a
+		 * real on-device read.
+		 *
+		 * UCLAMP_PERCENT_SCALE (#define'd later in this same file, at
+		 * cpu_uclamp_write()'s helpers) isn't used directly here since
+		 * that #define appears after this function in the file and
+		 * C requires it declared first; 10000 is the literal
+		 * equivalent (100 * 10^UCLAMP_PERCENT_SHIFT, shift=2).
+		 */
 		tg->uclamp_pct[UCLAMP_MIN] =
-			uclamp_forced_defaults[i].min * 100 / SCHED_CAPACITY_SCALE;
+			(u64)uclamp_forced_defaults[i].min * 10000 /
+			SCHED_CAPACITY_SCALE;
 		tg->uclamp_pct[UCLAMP_MAX] =
-			uclamp_forced_defaults[i].max * 100 / SCHED_CAPACITY_SCALE;
+			(u64)uclamp_forced_defaults[i].max * 10000 /
+			SCHED_CAPACITY_SCALE;
 		break;
 	}
 }
