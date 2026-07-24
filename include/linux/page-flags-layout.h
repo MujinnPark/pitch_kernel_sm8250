@@ -96,6 +96,35 @@
 #endif
 
 /*
+ * PitchKernel MGLRU: generation counter + refs/tier storage packed into
+ * the remaining page->flags bits, above everything else already claimed.
+ *
+ * This layout was derived and verified against this exact munch defconfig
+ * (ARM64_VA_BITS=39, SPARSEMEM_VMEMMAP=y, NUMA=n, KASAN=n, NR_PAGEFLAGS=22,
+ * 3 zone types => ZONES_WIDTH=2), which leaves 40 free bits. It is NOT
+ * guaranteed correct for any other defconfig variant. The compile-time
+ * check below is mandatory: if this is ever built against a config with
+ * less headroom (e.g. NUMA_BALANCING or KASAN_SW_TAGS enabled), the build
+ * must fail loudly here rather than silently corrupting page->flags.
+ */
+#ifdef CONFIG_LRU_GEN
+/* Max generations tracked per lruvec: 2^LRU_GEN_WIDTH - 1 (0 reserved) */
+#define LRU_GEN_WIDTH		10
+/* Refs (access recency within a generation) + tier bits */
+#define LRU_REFS_WIDTH		3
+#define LRU_GEN_PGOFF		(BITS_PER_LONG - LRU_GEN_WIDTH)
+#define LRU_REFS_PGOFF		(LRU_GEN_PGOFF - LRU_REFS_WIDTH)
+#else
+#define LRU_GEN_WIDTH		0
+#define LRU_REFS_WIDTH		0
+#endif
+
+#if SECTIONS_WIDTH+NODES_WIDTH+ZONES_WIDTH+LAST_CPUPID_WIDTH+KASAN_TAG_WIDTH \
+	+ LRU_GEN_WIDTH + LRU_REFS_WIDTH > BITS_PER_LONG - NR_PAGEFLAGS
+#error "PitchKernel MGLRU: not enough free page->flags bits for this defconfig -- re-verify NR_PAGEFLAGS/ZONES_WIDTH before adjusting LRU_GEN_WIDTH/LRU_REFS_WIDTH"
+#endif
+
+/*
  * We are going to use the flags for the page to node mapping if its in
  * there.  This includes the case where there is no node, so it is implicit.
  */
