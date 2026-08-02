@@ -882,24 +882,3 @@ config EMERGENCY_MEMORY
 	 This enables the migration type MIGRATE_EMERGENCY which reserves
 	 a small amount of memory for non-costly non-NOWARN page allocation
 	 failure.
-
-config LRU_GEN
-	bool "Multi-Gen LRU (PitchKernel backport)"
-	depends on MMU
-	default n
-	help
-	  Backport of the Multi-Generation LRU (MGLRU) page reclaim
-	  framework to this 4.19-based tree, adapted for the munch
-	  (SM8250) platform.
-
-	  This is a phased, in-progress backport (see PitchKernel project
-	  notes). Phase 0 only adds inert struct/bit-layout scaffolding
-	  with no behavioral change when enabled; later phases add the
-	  actual generation aging/eviction logic, Xiaomi RTMM reclaim
-	  hook re-threading, and memcg/sysfs integration.
-
-	  Do not enable for production builds until all phases are
-	  complete and boot/soak-tested. Default build variants should
-	  leave this off; it is intended to be toggled per-CI-variant.
-
-	  If unsure, say N.

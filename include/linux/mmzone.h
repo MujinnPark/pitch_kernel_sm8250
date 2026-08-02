@@ -253,26 +253,6 @@ struct zone_reclaim_stat {
 	unsigned long		recent_scanned[2];
 };
 
-#ifdef CONFIG_LRU_GEN
-/*
- * PitchKernel MGLRU: per-lruvec generation state.
- *
- * Phase 0 scaffolding only -- this struct is embedded in struct lruvec
- * but is NOT read or written anywhere yet. It exists so later phases
- * (aging/eviction in mm/vmscan.c, mm_inline.h helpers) have a stable
- * struct layout to build against without another mmzone.h churn.
- *
- * Generation lists, sequence counters (max_seq/min_seq), and per-gen
- * page counts are intentionally left unimplemented here; they are
- * added in Phase 1 alongside the aging/eviction code that actually
- * uses them, so this struct's real shape is verified against working
- * logic rather than guessed in isolation.
- */
-struct lru_gen_struct {
-	/* placeholder -- populated in Phase 1 */
-};
-#endif
-
 struct lruvec {
 	struct list_head		lists[NR_LRU_LISTS];
 	struct zone_reclaim_stat	reclaim_stat;
@@ -280,10 +260,6 @@ struct lruvec {
 	atomic_long_t			inactive_age;
 	/* Refaults at the time of last reclaim cycle */
 	unsigned long			refaults;
-#ifdef CONFIG_LRU_GEN
-	/* PitchKernel MGLRU: Phase 0 scaffolding, unused until Phase 1 */
-	struct lru_gen_struct		lrugen;
-#endif
 #ifdef CONFIG_MEMCG
 	struct pglist_data *pgdat;
 #endif
