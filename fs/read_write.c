@@ -586,13 +586,28 @@ ssize_t ksys_read(unsigned int fd, char __user *buf, size_t count)
 	return ret;
 }
 
-#ifdef CONFIG_KSU
+/*
+ * PitchKernel: tightened from #ifdef CONFIG_KSU to #ifdef CONFIG_KSU_SUSFS.
+ * ksu_is_init_rc_hook_enabled is only ever *defined* inside ReSukiSU's
+ * SUSFS-conditional driver source (confirmed: no definition site exists
+ * anywhere in this tree, and every other reference to this same symbol
+ * elsewhere in the tree -- fs/stat.c -- already correctly gates on
+ * CONFIG_KSU_SUSFS, not the broader CONFIG_KSU). This one site was the
+ * sole exception, and it produced a real link failure
+ * ("undefined symbol: ksu_is_init_rc_hook_enabled") the moment
+ * CONFIG_KSU_SUSFS was off but CONFIG_KSU was still on (the
+ * ReSukiSU-NoSUSFS matrix variant) -- a pre-existing bug in this tree,
+ * not something introduced by the NoSUSFS split itself, just never
+ * previously exercised because SUSFS had always been on for every
+ * prior ReSukiSU build.
+ */
+#ifdef CONFIG_KSU_SUSFS
 extern struct static_key_true ksu_is_init_rc_hook_enabled;
 extern __attribute__((cold)) int ksu_handle_sys_read(unsigned int fd);
 #endif
 SYSCALL_DEFINE3(read, unsigned int, fd, char __user *, buf, size_t, count)
 {
-#ifdef CONFIG_KSU
+#ifdef CONFIG_KSU_SUSFS
 	if (static_branch_unlikely(&ksu_is_init_rc_hook_enabled))
 		ksu_handle_sys_read(fd);
 #endif
