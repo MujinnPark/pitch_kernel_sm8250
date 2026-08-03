@@ -261,6 +261,19 @@ if [ $KSU_ENABLE -eq 1 ]; then
     -e THREAD_INFO_IN_TASK \
     -e KSU_MULTI_MANAGER_SUPPORT \
     -e KPM
+  # PitchKernel: force Manual Hook mode. ReSukiSU's Kbuild defaults to
+  # Tracepoint Syscall Redirect Hook, which upstream docs state only
+  # supports GKI 2.0 (5.10+) kernels -- this tree is Linux 4.19 Non-GKI.
+  # Without this, drivers/kernelsu/Kbuild hard-stops the build with
+  # "TP hooks are incompatible with Non-GKI/GKI 1.0 kernels" the moment
+  # the real compile pass reaches drivers/kernelsu (the earlier configure
+  # pass doesn't hit this check, so it doesn't fail immediately -- it
+  # fails ~5 minutes in, mid-build). Manual Hook is documented as
+  # supporting Linux 3.4 through 6.18, which covers this tree. This
+  # applies to both SUSFS and NoSUSFS variants equally -- it has nothing
+  # to do with SUSFS, it is a Non-GKI compatibility requirement.
+  scripts/config --file out/.config \
+    -e KSU_MANUAL_HOOK
   # PitchKernel: SUSFS is gated independently of KSU_ENABLE here -- see
   # SUSFS_ENABLE derivation near the top of this script (3rd positional
   # arg "nosusfs"). ReSukiSU's setup.sh always writes SUSFS source into
@@ -449,6 +462,19 @@ if [ $KSU_ENABLE -eq 1 ]; then
     -e THREAD_INFO_IN_TASK \
     -e KSU_MULTI_MANAGER_SUPPORT \
     -e KPM
+  # PitchKernel: force Manual Hook mode. ReSukiSU's Kbuild defaults to
+  # Tracepoint Syscall Redirect Hook, which upstream docs state only
+  # supports GKI 2.0 (5.10+) kernels -- this tree is Linux 4.19 Non-GKI.
+  # Without this, drivers/kernelsu/Kbuild hard-stops the build with
+  # "TP hooks are incompatible with Non-GKI/GKI 1.0 kernels" the moment
+  # the real compile pass reaches drivers/kernelsu (the earlier configure
+  # pass doesn't hit this check, so it doesn't fail immediately -- it
+  # fails ~5 minutes in, mid-build). Manual Hook is documented as
+  # supporting Linux 3.4 through 6.18, which covers this tree. This
+  # applies to both SUSFS and NoSUSFS variants equally -- it has nothing
+  # to do with SUSFS, it is a Non-GKI compatibility requirement.
+  scripts/config --file out/.config \
+    -e KSU_MANUAL_HOOK
   # PitchKernel: SUSFS is gated independently of KSU_ENABLE here -- see
   # SUSFS_ENABLE derivation near the top of this script (3rd positional
   # arg "nosusfs"). ReSukiSU's setup.sh always writes SUSFS source into
