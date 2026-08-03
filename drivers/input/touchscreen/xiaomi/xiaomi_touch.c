@@ -557,6 +557,18 @@ static DEVICE_ATTR(resolution_factor, 0644, resolution_factor_show, NULL);
  * All writes still go through the existing ioctl interface so
  * touch_mode[] state cannot desync between two control paths.
  *
+ * IMPORTANT: values must be read via touch_data->getModeValue(),
+ * NOT by indexing touch_data->touch_mode[][] directly. The FTS
+ * driver's xiaomitouch_register_modedata() only copies function
+ * pointers (setModeValue/getModeValue/etc.) into touch_pdata's
+ * struct -- it never copies the touch_mode[][] array itself, which
+ * lives separately in the FTS driver's own xiaomi_touch_interfaces
+ * global. Indexing touch_mode[][] here reads dead, always-zero
+ * local storage. This was caught on-device: v1 of this node
+ * returned up_threshold=0 tolerance=0 aim_sensitivity=0
+ * tap_stability=0 for both current and default values, which is
+ * not a valid state for touch-range-array = <1 5 10 15 20>.
+ *
  * Values reported are raw controller units (touch-range-array
  * indices resolve to these), not levels 1-5.
  *
@@ -579,19 +591,22 @@ static ssize_t touch_tuning_debug_show(struct device *dev,
 
 	touch_data = pdata->touch_data;
 
+	if (!touch_data->getModeValue)
+		return -ENODEV;
+
 	return snprintf(buf, PAGE_SIZE,
 		"up_threshold=%d (def=%d)\n"
 		"tolerance=%d (def=%d)\n"
 		"aim_sensitivity=%d (def=%d)\n"
 		"tap_stability=%d (def=%d)\n",
-		touch_data->touch_mode[Touch_UP_THRESHOLD][GET_CUR_VALUE],
-		touch_data->touch_mode[Touch_UP_THRESHOLD][GET_DEF_VALUE],
-		touch_data->touch_mode[Touch_Tolerance][GET_CUR_VALUE],
-		touch_data->touch_mode[Touch_Tolerance][GET_DEF_VALUE],
-		touch_data->touch_mode[Touch_Aim_Sensitivity][GET_CUR_VALUE],
-		touch_data->touch_mode[Touch_Aim_Sensitivity][GET_DEF_VALUE],
-		touch_data->touch_mode[Touch_Tap_Stability][GET_CUR_VALUE],
-		touch_data->touch_mode[Touch_Tap_Stability][GET_DEF_VALUE]);
+		touch_data->getModeValue(Touch_UP_THRESHOLD, GET_CUR_VALUE),
+		touch_data->getModeValue(Touch_UP_THRESHOLD, GET_DEF_VALUE),
+		touch_data->getModeValue(Touch_Tolerance, GET_CUR_VALUE),
+		touch_data->getModeValue(Touch_Tolerance, GET_DEF_VALUE),
+		touch_data->getModeValue(Touch_Aim_Sensitivity, GET_CUR_VALUE),
+		touch_data->getModeValue(Touch_Aim_Sensitivity, GET_DEF_VALUE),
+		touch_data->getModeValue(Touch_Tap_Stability, GET_CUR_VALUE),
+		touch_data->getModeValue(Touch_Tap_Stability, GET_DEF_VALUE));
 }
 
 static DEVICE_ATTR(touch_tuning_debug, S_IRUGO, touch_tuning_debug_show, NULL);
