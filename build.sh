@@ -11,11 +11,15 @@ TARGET_DEVICE=$1
 if [ -z "$1" ]; then
   echo "Error: No argument provided, please specific a target device."
   echo "If you need KernelSU, please add [ksu] as the second arg."
+  echo "SUSFS is bundled with ksu by default. To build ReSukiSU WITHOUT SUSFS,"
+  echo "add [nosusfs] as the third arg."
   echo "Examples:"
   echo " Build for lmi(K30 Pro/POCO F2 Pro) without KernelSU:"
   echo " bash build.sh lmi"
-  echo " Build for umi(Mi10) with KernelSU:"
+  echo " Build for umi(Mi10) with ReSukiSU + SUSFS:"
   echo " bash build.sh umi ksu"
+  echo " Build for umi(Mi10) with ReSukiSU only, no SUSFS:"
+  echo " bash build.sh umi ksu nosusfs"
   exit 1
 fi
 
@@ -197,9 +201,31 @@ clang --version
 KSU_ZIP_STR=NoKernelSU
 if [ "$2" == "ksu" ]; then
   KSU_ENABLE=1
-  KSU_ZIP_STR=ReSukiSU-SuSFS
 else
   KSU_ENABLE=0
+fi
+
+# PitchKernel: SUSFS is a separate axis from KSU_ENABLE, not implied by it.
+# Historically this script only ever built two configurations (no root, or
+# ReSukiSU+SUSFS together as one unit) because setup.sh's fetch always drops
+# SUSFS source into the tree alongside the KSU driver regardless -- but the
+# KSU_SUSFS* Kconfig symbols that actually compile that source in are a
+# separate gate, so ReSukiSU-only (KSU on, SUSFS Kconfig symbols left off)
+# is achievable purely at the config stage without touching setup.sh's fetch.
+# Third positional arg "nosusfs" only has any effect when $2 is "ksu"; it is
+# ignored (and irrelevant) when KSU_ENABLE=0, since there is no SUSFS to
+# disable in that case.
+SUSFS_ENABLE=1
+if [ "$KSU_ENABLE" -eq 1 ] && [ "$3" == "nosusfs" ]; then
+  SUSFS_ENABLE=0
+fi
+
+if [ "$KSU_ENABLE" -eq 1 ]; then
+  if [ "$SUSFS_ENABLE" -eq 1 ]; then
+    KSU_ZIP_STR=ReSukiSU-SuSFS
+  else
+    KSU_ZIP_STR=ReSukiSU-NoSuSFS
+  fi
 fi
 
 echo "TARGET_DEVICE: $TARGET_DEVICE"
@@ -233,18 +259,38 @@ if [ $KSU_ENABLE -eq 1 ]; then
   scripts/config --file out/.config \
     -e KSU \
     -e THREAD_INFO_IN_TASK \
-    -e KSU_SUSFS \
-    -e KSU_SUSFS_SUS_PATH \
-    -e KSU_SUSFS_SUS_MOUNT \
-    -e KSU_SUSFS_SUS_KSTAT \
-    -e KSU_SUSFS_SPOOF_UNAME \
-    -e KSU_SUSFS_ENABLE_LOG \
-    -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
-    -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
-    -e KSU_SUSFS_OPEN_REDIRECT \
-    -e KSU_SUSFS_SUS_MAP \
     -e KSU_MULTI_MANAGER_SUPPORT \
     -e KPM
+  # PitchKernel: SUSFS is gated independently of KSU_ENABLE here -- see
+  # SUSFS_ENABLE derivation near the top of this script (3rd positional
+  # arg "nosusfs"). ReSukiSU's setup.sh always writes SUSFS source into
+  # the tree when KSU is fetched; this block controls whether that source
+  # is actually compiled in, not whether it exists on disk.
+  if [ "$SUSFS_ENABLE" -eq 1 ]; then
+    scripts/config --file out/.config \
+      -e KSU_SUSFS \
+      -e KSU_SUSFS_SUS_PATH \
+      -e KSU_SUSFS_SUS_MOUNT \
+      -e KSU_SUSFS_SUS_KSTAT \
+      -e KSU_SUSFS_SPOOF_UNAME \
+      -e KSU_SUSFS_ENABLE_LOG \
+      -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
+      -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
+      -e KSU_SUSFS_OPEN_REDIRECT \
+      -e KSU_SUSFS_SUS_MAP
+  else
+    scripts/config --file out/.config \
+      -d KSU_SUSFS \
+      -d KSU_SUSFS_SUS_PATH \
+      -d KSU_SUSFS_SUS_MOUNT \
+      -d KSU_SUSFS_SUS_KSTAT \
+      -d KSU_SUSFS_SPOOF_UNAME \
+      -d KSU_SUSFS_ENABLE_LOG \
+      -d KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
+      -d KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
+      -d KSU_SUSFS_OPEN_REDIRECT \
+      -d KSU_SUSFS_SUS_MAP
+  fi
 else
   scripts/config --file out/.config -d KSU
 fi
@@ -401,18 +447,38 @@ if [ $KSU_ENABLE -eq 1 ]; then
   scripts/config --file out/.config \
     -e KSU \
     -e THREAD_INFO_IN_TASK \
-    -e KSU_SUSFS \
-    -e KSU_SUSFS_SUS_PATH \
-    -e KSU_SUSFS_SUS_MOUNT \
-    -e KSU_SUSFS_SUS_KSTAT \
-    -e KSU_SUSFS_SPOOF_UNAME \
-    -e KSU_SUSFS_ENABLE_LOG \
-    -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
-    -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
-    -e KSU_SUSFS_OPEN_REDIRECT \
-    -e KSU_SUSFS_SUS_MAP \
     -e KSU_MULTI_MANAGER_SUPPORT \
     -e KPM
+  # PitchKernel: SUSFS is gated independently of KSU_ENABLE here -- see
+  # SUSFS_ENABLE derivation near the top of this script (3rd positional
+  # arg "nosusfs"). ReSukiSU's setup.sh always writes SUSFS source into
+  # the tree when KSU is fetched; this block controls whether that source
+  # is actually compiled in, not whether it exists on disk.
+  if [ "$SUSFS_ENABLE" -eq 1 ]; then
+    scripts/config --file out/.config \
+      -e KSU_SUSFS \
+      -e KSU_SUSFS_SUS_PATH \
+      -e KSU_SUSFS_SUS_MOUNT \
+      -e KSU_SUSFS_SUS_KSTAT \
+      -e KSU_SUSFS_SPOOF_UNAME \
+      -e KSU_SUSFS_ENABLE_LOG \
+      -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
+      -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
+      -e KSU_SUSFS_OPEN_REDIRECT \
+      -e KSU_SUSFS_SUS_MAP
+  else
+    scripts/config --file out/.config \
+      -d KSU_SUSFS \
+      -d KSU_SUSFS_SUS_PATH \
+      -d KSU_SUSFS_SUS_MOUNT \
+      -d KSU_SUSFS_SUS_KSTAT \
+      -d KSU_SUSFS_SPOOF_UNAME \
+      -d KSU_SUSFS_ENABLE_LOG \
+      -d KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
+      -d KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
+      -d KSU_SUSFS_OPEN_REDIRECT \
+      -d KSU_SUSFS_SUS_MAP
+  fi
 else
   scripts/config --file out/.config -d KSU
 fi
