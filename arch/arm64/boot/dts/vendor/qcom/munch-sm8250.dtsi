@@ -527,7 +527,17 @@ And public attribution of xiaomi platforms(like L11R and so and)
 		focaltech,display-coords = <0 0 10800 24000>;
 		focaltech,open-min = <3000>;
 		focaltech,touch-range-array = <1 5 10 15 20>;
-		focaltech,touch-def-array = <3 3 3 3>;
+		/* PitchKernel: nudged one level (3->2) toward lower raw
+		 * values across all four tuning modes (up-threshold,
+		 * tolerance, aim-sensitivity, tap-stability) as a
+		 * conservative, reversible change. Direction (whether
+		 * lower = more responsive) is NOT empirically confirmed
+		 * -- verify on-device before assuming this helps. See
+		 * drivers/input/touchscreen/xiaomi/xiaomi_touch.c
+		 * touch_tuning_debug sysfs node to read live values.
+		 * Stock/original default was <3 3 3 3>.
+		 */
+		focaltech,touch-def-array = <2 2 2 2>;
 		focaltech,touch-expert-array = <10 10 10 10
 						20 20 15 10
 						20 20 20 10>;

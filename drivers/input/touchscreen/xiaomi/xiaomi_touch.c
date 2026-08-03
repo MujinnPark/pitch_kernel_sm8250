@@ -546,6 +546,56 @@ static DEVICE_ATTR(partial_diff_data, (S_IRUGO | S_IWUSR | S_IWGRP),
 
 static DEVICE_ATTR(resolution_factor, 0644, resolution_factor_show, NULL);
 
+/*
+ * PitchKernel: read-only diagnostic node exposing the four touch
+ * tuning modes that are already writable via the standard
+ * xiaomi-touch ioctl interface (SET_CUR_VALUE / GET_CUR_VALUE on
+ * /dev/xiaomi-touch), for Termux-side verification without needing
+ * a kernel-manager app.
+ *
+ * This node is READ-ONLY and does not add a second write path.
+ * All writes still go through the existing ioctl interface so
+ * touch_mode[] state cannot desync between two control paths.
+ *
+ * Values reported are raw controller units (touch-range-array
+ * indices resolve to these), not levels 1-5.
+ *
+ * NOTE: the direction of these values (whether a lower raw value
+ * means more or less sensitive) is not documented anywhere in this
+ * driver or in any Focaltech register-level reference available to
+ * PitchKernel. The defconfig default was nudged one level toward
+ * lower values as a conservative, reversible change -- this has
+ * NOT been empirically confirmed on-device to increase touch
+ * responsiveness. Verify against your own feel before trusting it.
+ */
+static ssize_t touch_tuning_debug_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct xiaomi_touch_pdata *pdata = dev_get_drvdata(dev);
+	struct xiaomi_touch_interface *touch_data;
+
+	if (!pdata || !pdata->touch_data)
+		return -ENODEV;
+
+	touch_data = pdata->touch_data;
+
+	return snprintf(buf, PAGE_SIZE,
+		"up_threshold=%d (def=%d)\n"
+		"tolerance=%d (def=%d)\n"
+		"aim_sensitivity=%d (def=%d)\n"
+		"tap_stability=%d (def=%d)\n",
+		touch_data->touch_mode[Touch_UP_THRESHOLD][GET_CUR_VALUE],
+		touch_data->touch_mode[Touch_UP_THRESHOLD][GET_DEF_VALUE],
+		touch_data->touch_mode[Touch_Tolerance][GET_CUR_VALUE],
+		touch_data->touch_mode[Touch_Tolerance][GET_DEF_VALUE],
+		touch_data->touch_mode[Touch_Aim_Sensitivity][GET_CUR_VALUE],
+		touch_data->touch_mode[Touch_Aim_Sensitivity][GET_DEF_VALUE],
+		touch_data->touch_mode[Touch_Tap_Stability][GET_CUR_VALUE],
+		touch_data->touch_mode[Touch_Tap_Stability][GET_DEF_VALUE]);
+}
+
+static DEVICE_ATTR(touch_tuning_debug, S_IRUGO, touch_tuning_debug_show, NULL);
+
 static struct attribute *touch_attr_group[] = {
 	&dev_attr_palm_sensor.attr,
 	&dev_attr_p_sensor.attr,
@@ -558,6 +608,7 @@ static struct attribute *touch_attr_group[] = {
 	&dev_attr_partial_diff_data.attr,
 #endif
 	&dev_attr_resolution_factor.attr,
+	&dev_attr_touch_tuning_debug.attr,
 #ifdef CONFIG_TOUCHSCREEN_NEW_PEN_CONNECT_STRATEGY
 	&dev_attr_pen_connect_strategy.attr,
 #endif // CONFIG_TOUCHSCREEN_NEW_PEN_CONNECT_STRATEGY
