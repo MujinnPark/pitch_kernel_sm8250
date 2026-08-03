@@ -470,8 +470,25 @@ out:
 	return res;
 }
 
+#ifdef CONFIG_KSU_MANUAL_HOOK
+/*
+ * PitchKernel: independent hook path for the ReSukiSU-NoSUSFS matrix
+ * variant, sourced verbatim from the official ReSukiSU/ReSukiSU_Patches
+ * scope-minimized/kernel-4.19.patch. Different call site from the
+ * CONFIG_KSU_SUSFS hook above (do_faccessat vs SYSCALL_DEFINE3(faccessat)
+ * below), so no collision -- and mutually exclusive at the Kconfig level
+ * regardless (see build.sh/build-miui.sh, and fs/stat.c's comment).
+ */
+__attribute__((hot))
+extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user,
+				int *mode, int *flags);
+#endif
+
 SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)
 {
+#ifdef CONFIG_KSU_MANUAL_HOOK
+	ksu_handle_faccessat(&dfd, &filename, &mode, NULL);
+#endif
 	return do_faccessat(dfd, filename, mode);
 }
 

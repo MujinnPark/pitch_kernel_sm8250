@@ -1959,12 +1959,30 @@ int do_execve_file(struct file *file, void *__argv, void *__envp)
 	return __do_execve_file(AT_FDCWD, NULL, argv, envp, 0, file);
 }
 
+#ifdef CONFIG_KSU_MANUAL_HOOK
+/*
+ * PitchKernel: independent hook path for the ReSukiSU-NoSUSFS matrix
+ * variant, sourced verbatim from the official ReSukiSU/ReSukiSU_Patches
+ * scope-minimized/kernel-4.19.patch. See fs/stat.c's matching comment for
+ * the full explanation of why this exists as a separate path from the
+ * CONFIG_KSU_SUSFS hook above (different call site: __do_execve_file vs
+ * do_execve/compat_do_execve, so no collision -- and mutually exclusive
+ * at the Kconfig level regardless, see build.sh/build-miui.sh).
+ */
+__attribute__((hot))
+extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr,
+				void *argv, void *envp, int *flags);
+#endif
+
 int do_execve(struct filename *filename,
 	const char __user *const __user *__argv,
 	const char __user *const __user *__envp)
 {
 	struct user_arg_ptr argv = { .ptr.native = __argv };
 	struct user_arg_ptr envp = { .ptr.native = __envp };
+#ifdef CONFIG_KSU_MANUAL_HOOK
+	ksu_handle_execveat((int *)AT_FDCWD, &filename, &argv, &envp, 0);
+#endif
 	return do_execveat_common(AT_FDCWD, filename, argv, envp, 0);
 }
 
@@ -1992,6 +2010,9 @@ static int compat_do_execve(struct filename *filename,
 		.is_compat = true,
 		.ptr.compat = __envp,
 	};
+#ifdef CONFIG_KSU_MANUAL_HOOK // 32-bit ksud and 32-on-64 support
+	ksu_handle_execveat((int *)AT_FDCWD, &filename, &argv, &envp, 0);
+#endif
 	return do_execveat_common(AT_FDCWD, filename, argv, envp, 0);
 }
 

@@ -233,14 +233,14 @@ if [ $KSU_ENABLE -eq 1 ]; then
     -e THREAD_INFO_IN_TASK \
     -e KSU_MULTI_MANAGER_SUPPORT \
     -e KPM
-    # PitchKernel: force Manual Hook mode -- see build.sh's matching
-    # comment for the full explanation (Tracepoint hooks only support
-    # GKI 2.0, this tree is Linux 4.19 Non-GKI). Applies to both SUSFS
-    # and NoSUSFS variants; unrelated to the SUSFS toggle itself.
-    scripts/config --file out/.config \
-    -e KSU_MANUAL_HOOK
+    # PitchKernel: KSU_MANUAL_HOOK / KSU_SUSFS mutually exclusive -- see
+    # build.sh's matching comment for full explanation. This tree's KSU
+    # hook call sites are all wired through CONFIG_KSU_SUSFS; setting
+    # both would double-declare externs / double-call hooks in
+    # fs/stat.c and kernel/reboot.c.
     if [ "$SUSFS_ENABLE" -eq 1 ]; then
         scripts/config --file out/.config \
+        -d KSU_MANUAL_HOOK \
         -e KSU_SUSFS \
         -e KSU_SUSFS_SUS_PATH \
         -e KSU_SUSFS_SUS_MOUNT \
@@ -253,6 +253,7 @@ if [ $KSU_ENABLE -eq 1 ]; then
         -e KSU_SUSFS_SUS_MAP
     else
         scripts/config --file out/.config \
+        -e KSU_MANUAL_HOOK \
         -d KSU_SUSFS \
         -d KSU_SUSFS_SUS_PATH \
         -d KSU_SUSFS_SUS_MOUNT \

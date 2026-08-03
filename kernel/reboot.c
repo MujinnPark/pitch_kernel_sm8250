@@ -320,6 +320,15 @@ DEFINE_MUTEX(system_transition_mutex);
 #ifdef CONFIG_KSU_SUSFS
 extern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);
 #endif
+#ifdef CONFIG_KSU_MANUAL_HOOK
+/*
+ * PitchKernel: independent path for the ReSukiSU-NoSUSFS variant -- see
+ * fs/stat.c's matching comment. Only one of these two extern declarations
+ * will actually be compiled in for a given build (CONFIG_KSU_SUSFS xor
+ * CONFIG_KSU_MANUAL_HOOK-only), so there's no duplicate-symbol risk.
+ */
+extern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);
+#endif
 
 SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,
 		void __user *, arg)
@@ -331,6 +340,9 @@ SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,
     if (system_state == SYSTEM_RUNNING) {
         ksu_handle_sys_reboot(magic1, magic2, cmd, &arg);
     }
+#endif
+#ifdef CONFIG_KSU_MANUAL_HOOK
+	ksu_handle_sys_reboot(magic1, magic2, cmd, &arg);
 #endif
 
 

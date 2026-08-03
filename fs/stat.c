@@ -399,6 +399,36 @@ SYSCALL_DEFINE2(newlstat, const char __user *, filename,
 	return cp_new_stat(&stat, statbuf);
 }
 
+#ifdef CONFIG_KSU_MANUAL_HOOK
+/*
+ * PitchKernel: this tree's existing KSU hooks (execveat/faccessat/stat, see
+ * elsewhere in this file and in fs/exec.c, fs/open.c) are all wired through
+ * #ifdef CONFIG_KSU_SUSFS using SUSFS's own compat layer
+ * (susfs_is_current_proc_umounted / ksu_su_compat_enabled). That means when
+ * CONFIG_KSU_SUSFS is off (the ReSukiSU-NoSUSFS matrix variant), this tree
+ * has *zero* KSU hooks compiled in at all -- root doesn't just lose SUSFS
+ * features, it loses its hook plumbing entirely. ReSukiSU's Kbuild
+ * (drivers/kernelsu/kernel/tools/manual_hook_check.mk) checks for
+ * ksu_handle_newfstat_ret specifically and hard-fails the build if it's
+ * missing, which is exactly what happened.
+ *
+ * This block adds the official, upstream ReSukiSU_Patches hook
+ * (ReSukiSU/ReSukiSU_Patches, scope-minimized/kernel-4.19.patch) as a
+ * SEPARATE path gated on CONFIG_KSU_MANUAL_HOOK, independent of
+ * CONFIG_KSU_SUSFS. This does NOT coexist with the SUSFS-gated hooks
+ * above at build time -- build.sh/build-miui.sh set KSU_MANUAL_HOOK and
+ * KSU_SUSFS as mutually exclusive (KSU_MANUAL_HOOK only when
+ * SUSFS_ENABLE=0), specifically to avoid double-declaring these externs
+ * or double-calling the hooks below when both would otherwise be y.
+ */
+__attribute__((hot))
+extern void ksu_handle_newfstat_ret(unsigned int *fd, struct stat __user **statbuf_ptr);
+#if defined(__ARCH_WANT_STAT64) || defined(__ARCH_WANT_COMPAT_STAT64)
+__attribute__((hot))
+extern void ksu_handle_fstat64_ret(unsigned long *fd, struct stat64 __user **statbuf_ptr); // optional
+#endif
+#endif
+
 #if !defined(__ARCH_WANT_STAT64) || defined(__ARCH_WANT_SYS_NEWFSTATAT)
 SYSCALL_DEFINE4(newfstatat, int, dfd, const char __user *, filename,
 		struct stat __user *, statbuf, int, flag)
@@ -421,6 +451,9 @@ SYSCALL_DEFINE2(newfstat, unsigned int, fd, struct stat __user *, statbuf)
 	if (!error)
 		error = cp_new_stat(&stat, statbuf);
 
+#ifdef CONFIG_KSU_MANUAL_HOOK
+	ksu_handle_newfstat_ret(&fd, &statbuf);
+#endif
 	return error;
 }
 
@@ -544,6 +577,9 @@ SYSCALL_DEFINE2(fstat64, unsigned long, fd, struct stat64 __user *, statbuf)
 	struct kstat stat;
 	int error = vfs_fstat(fd, &stat);
 
+#ifdef CONFIG_KSU_MANUAL_HOOK // for 32-bit
+	ksu_handle_fstat64_ret(&fd, &statbuf);
+#endif
 	if (!error)
 		error = cp_new_stat64(&stat, statbuf);
 

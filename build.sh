@@ -261,26 +261,37 @@ if [ $KSU_ENABLE -eq 1 ]; then
     -e THREAD_INFO_IN_TASK \
     -e KSU_MULTI_MANAGER_SUPPORT \
     -e KPM
-  # PitchKernel: force Manual Hook mode. ReSukiSU's Kbuild defaults to
-  # Tracepoint Syscall Redirect Hook, which upstream docs state only
-  # supports GKI 2.0 (5.10+) kernels -- this tree is Linux 4.19 Non-GKI.
-  # Without this, drivers/kernelsu/Kbuild hard-stops the build with
-  # "TP hooks are incompatible with Non-GKI/GKI 1.0 kernels" the moment
-  # the real compile pass reaches drivers/kernelsu (the earlier configure
-  # pass doesn't hit this check, so it doesn't fail immediately -- it
-  # fails ~5 minutes in, mid-build). Manual Hook is documented as
-  # supporting Linux 3.4 through 6.18, which covers this tree. This
-  # applies to both SUSFS and NoSUSFS variants equally -- it has nothing
-  # to do with SUSFS, it is a Non-GKI compatibility requirement.
-  scripts/config --file out/.config \
-    -e KSU_MANUAL_HOOK
   # PitchKernel: SUSFS is gated independently of KSU_ENABLE here -- see
   # SUSFS_ENABLE derivation near the top of this script (3rd positional
   # arg "nosusfs"). ReSukiSU's setup.sh always writes SUSFS source into
   # the tree when KSU is fetched; this block controls whether that source
   # is actually compiled in, not whether it exists on disk.
+  #
+  # KSU_MANUAL_HOOK / KSU_SUSFS are mutually exclusive here, not just
+  # independently toggled. This tree's actual KSU hook call sites
+  # (fs/exec.c, fs/open.c, fs/stat.c, kernel/reboot.c) are ALL wired
+  # through #ifdef CONFIG_KSU_SUSFS using SUSFS's own compat layer
+  # (susfs_is_current_proc_umounted / ksu_su_compat_enabled) -- KSU_SUSFS
+  # is not just a feature flag in this tree, it's load-bearing hook
+  # plumbing. When SUSFS_ENABLE=0 there are zero KSU hooks left compiled
+  # in unless KSU_MANUAL_HOOK's separate hook path (added to fs/stat.c /
+  # kernel/reboot.c, see PitchKernel comments there, sourced from the
+  # official ReSukiSU/ReSukiSU_Patches scope-minimized/kernel-4.19.patch)
+  # is enabled instead. Setting both simultaneously would double-declare
+  # externs and double-call hooks in fs/stat.c and kernel/reboot.c -- so
+  # KSU_MANUAL_HOOK is only ever set when SUSFS_ENABLE=0, never alongside
+  # KSU_SUSFS. This also happens to be correct for the Tracepoint-vs-
+  # Manual-Hook Non-GKI issue: the SUSFS variant's existing SUSFS-gated
+  # hooks apparently don't route through drivers/kernelsu's own
+  # manual_hook_check.mk gate the way a bare KSU_MANUAL_HOOK build does
+  # (unconfirmed why -- SUSFS's hook registration may bypass that check
+  # entirely -- but the SUSFS variant built successfully under Tracepoint
+  # mode before KSU_MANUAL_HOOK existed in this script, so forcing
+  # KSU_MANUAL_HOOK on the SUSFS variant was never actually necessary and
+  # is now confirmed unsafe given the duplicate-hook risk above).
   if [ "$SUSFS_ENABLE" -eq 1 ]; then
     scripts/config --file out/.config \
+      -d KSU_MANUAL_HOOK \
       -e KSU_SUSFS \
       -e KSU_SUSFS_SUS_PATH \
       -e KSU_SUSFS_SUS_MOUNT \
@@ -293,6 +304,7 @@ if [ $KSU_ENABLE -eq 1 ]; then
       -e KSU_SUSFS_SUS_MAP
   else
     scripts/config --file out/.config \
+      -e KSU_MANUAL_HOOK \
       -d KSU_SUSFS \
       -d KSU_SUSFS_SUS_PATH \
       -d KSU_SUSFS_SUS_MOUNT \
@@ -462,26 +474,37 @@ if [ $KSU_ENABLE -eq 1 ]; then
     -e THREAD_INFO_IN_TASK \
     -e KSU_MULTI_MANAGER_SUPPORT \
     -e KPM
-  # PitchKernel: force Manual Hook mode. ReSukiSU's Kbuild defaults to
-  # Tracepoint Syscall Redirect Hook, which upstream docs state only
-  # supports GKI 2.0 (5.10+) kernels -- this tree is Linux 4.19 Non-GKI.
-  # Without this, drivers/kernelsu/Kbuild hard-stops the build with
-  # "TP hooks are incompatible with Non-GKI/GKI 1.0 kernels" the moment
-  # the real compile pass reaches drivers/kernelsu (the earlier configure
-  # pass doesn't hit this check, so it doesn't fail immediately -- it
-  # fails ~5 minutes in, mid-build). Manual Hook is documented as
-  # supporting Linux 3.4 through 6.18, which covers this tree. This
-  # applies to both SUSFS and NoSUSFS variants equally -- it has nothing
-  # to do with SUSFS, it is a Non-GKI compatibility requirement.
-  scripts/config --file out/.config \
-    -e KSU_MANUAL_HOOK
   # PitchKernel: SUSFS is gated independently of KSU_ENABLE here -- see
   # SUSFS_ENABLE derivation near the top of this script (3rd positional
   # arg "nosusfs"). ReSukiSU's setup.sh always writes SUSFS source into
   # the tree when KSU is fetched; this block controls whether that source
   # is actually compiled in, not whether it exists on disk.
+  #
+  # KSU_MANUAL_HOOK / KSU_SUSFS are mutually exclusive here, not just
+  # independently toggled. This tree's actual KSU hook call sites
+  # (fs/exec.c, fs/open.c, fs/stat.c, kernel/reboot.c) are ALL wired
+  # through #ifdef CONFIG_KSU_SUSFS using SUSFS's own compat layer
+  # (susfs_is_current_proc_umounted / ksu_su_compat_enabled) -- KSU_SUSFS
+  # is not just a feature flag in this tree, it's load-bearing hook
+  # plumbing. When SUSFS_ENABLE=0 there are zero KSU hooks left compiled
+  # in unless KSU_MANUAL_HOOK's separate hook path (added to fs/stat.c /
+  # kernel/reboot.c, see PitchKernel comments there, sourced from the
+  # official ReSukiSU/ReSukiSU_Patches scope-minimized/kernel-4.19.patch)
+  # is enabled instead. Setting both simultaneously would double-declare
+  # externs and double-call hooks in fs/stat.c and kernel/reboot.c -- so
+  # KSU_MANUAL_HOOK is only ever set when SUSFS_ENABLE=0, never alongside
+  # KSU_SUSFS. This also happens to be correct for the Tracepoint-vs-
+  # Manual-Hook Non-GKI issue: the SUSFS variant's existing SUSFS-gated
+  # hooks apparently don't route through drivers/kernelsu's own
+  # manual_hook_check.mk gate the way a bare KSU_MANUAL_HOOK build does
+  # (unconfirmed why -- SUSFS's hook registration may bypass that check
+  # entirely -- but the SUSFS variant built successfully under Tracepoint
+  # mode before KSU_MANUAL_HOOK existed in this script, so forcing
+  # KSU_MANUAL_HOOK on the SUSFS variant was never actually necessary and
+  # is now confirmed unsafe given the duplicate-hook risk above).
   if [ "$SUSFS_ENABLE" -eq 1 ]; then
     scripts/config --file out/.config \
+      -d KSU_MANUAL_HOOK \
       -e KSU_SUSFS \
       -e KSU_SUSFS_SUS_PATH \
       -e KSU_SUSFS_SUS_MOUNT \
@@ -494,6 +517,7 @@ if [ $KSU_ENABLE -eq 1 ]; then
       -e KSU_SUSFS_SUS_MAP
   else
     scripts/config --file out/.config \
+      -e KSU_MANUAL_HOOK \
       -d KSU_SUSFS \
       -d KSU_SUSFS_SUS_PATH \
       -d KSU_SUSFS_SUS_MOUNT \
