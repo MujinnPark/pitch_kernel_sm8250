@@ -402,6 +402,7 @@ static ssize_t nfc_write(struct file *filp, const char __user *buf,
 	struct nqx_dev *nqx_dev = filp->private_data;
 	char *tmp = NULL;
 	int ret = 0;
+	int retry_cnt;
 
 	if (!nqx_dev) {
 		ret = -ENODEV;
@@ -425,14 +426,21 @@ static ssize_t nfc_write(struct file *filp, const char __user *buf,
 #ifdef DISABLE_NCI_DEBUG
 	print_send_buffer(nqx_dev, tmp, count);
 #endif
+        retry_cnt = 0;
+        while (retry_cnt < MAX_RETRY_COUNT &&
+                        (ret = i2c_master_send(nqx_dev->client, tmp, count)) != count) {
+                dev_err(&nqx_dev->client->dev,
+                        "%s: failed to write %d\n", __func__, retry_cnt);
+                usleep_range(10000, 11000);
+                retry_cnt++;
+        }
 
-	ret = i2c_master_send(nqx_dev->client, tmp, count);
-	if (ret != count) {
-		dev_err(&nqx_dev->client->dev,
-		"%s: failed to write %d\n", __func__, ret);
-		ret = -EIO;
-		goto out_free;
-	}
+        if (retry_cnt >= MAX_RETRY_COUNT) {
+                dev_err(&nqx_dev->client->dev,
+                        "%s: failed to write after %d retries\n", __func__, retry_cnt);
+                ret = -EIO;
+                goto out_free;
+        }
 #ifdef NFC_KERNEL_BU
 	dev_dbg(&nqx_dev->client->dev,
 			"%s : i2c-%d: NfcNciTx %x %x %x\n",
@@ -1110,6 +1118,7 @@ static const struct file_operations nfc_dev_fops = {
 static int nfcc_hw_check(struct i2c_client *client, struct nqx_dev *nqx_dev)
 {
 	int ret = 0;
+	int retry_cnt;
 
 	int gpio_retry_count = 0;
 	int send_retry_count = 0;
