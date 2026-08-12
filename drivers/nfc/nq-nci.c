@@ -1118,7 +1118,6 @@ static const struct file_operations nfc_dev_fops = {
 static int nfcc_hw_check(struct i2c_client *client, struct nqx_dev *nqx_dev)
 {
 	int ret = 0;
-	int retry_cnt;
 
 	int gpio_retry_count = 0;
 	int send_retry_count = 0;
